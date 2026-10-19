@@ -1,5 +1,5 @@
 ---
-title: "Get Started with Earshot in 5 Minutes"
+title: "Earshot Quickstart: Describe, Match, and Find Sounds"
 sidebarTitle: "Quickstart"
 description: "Run your first earshot describe, match a sound against a query, find a moment in a recording, and connect Earshot as an MCP server for Claude Code."
 ---
@@ -30,7 +30,7 @@ This guide takes you from a fresh install to running your first four earshot com
 
     Example output:
 
-    ```
+    ```text
     0.56 s short transient (attack 3 ms, decays in 190 ms). Sounds most like: a single mechanical
     keyboard key press (z +5.4), a soft key release click (z +3.6) ... [clear reading].
     peak -0.1 dBFS, brightness 1.5 kHz ...
@@ -61,7 +61,7 @@ This guide takes you from a fresh install to running your first four earshot com
 
     Example output:
 
-    ```
+    ```text
     -> strong (z +3.7; would rank #2 among 322 vocabulary descriptions) ...
     ```
 
@@ -94,7 +94,7 @@ This guide takes you from a fresh install to running your first four earshot com
 
     Example output:
 
-    ```
+    ```text
     0:03.94-0:04.19 (0.24 s stroke, z +4.1 strong); 0:10.60-0:10.86 ...
     ```
 
@@ -215,9 +215,9 @@ earshot find keys.ogg "a key press" --top 4 --out finds.json
     Verdict levels explained, how to use `--alts`, and how to rank many files
     against one query.
   </Card>
-  <Card title="find & timeline" icon="clock" href="/commands/match-rank-find">
-    Finding moments in long recordings and generating full listening transcripts
-    of soundtracks and films.
+  <Card title="find" icon="clock" href="/commands/match-rank-find">
+    Finding the best moments of a specific sound inside a longer recording,
+    returned as start/end timestamps.
   </Card>
   <Card title="MCP Server" icon="server" href="/integrations/mcp-server">
     Complete setup guide for Claude Code and other MCP-compatible agents.

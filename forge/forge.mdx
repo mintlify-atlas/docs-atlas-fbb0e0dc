@@ -1,5 +1,5 @@
 ---
-title: "Make Sounds from Code with earshot forge"
+title: "earshot forge: Generate Sounds from Code with a Critic Loop"
 sidebarTitle: "forge"
 description: "earshot forge generates sounds using physical synthesis and an AI critic loop — write a recipe, run the search, read the critic's words, and improve."
 ---
@@ -52,6 +52,7 @@ earshot forge --check out/forge_v2/*/final
 | `--list` | — | List all recipes with their `TARGET` and refset categories |
 | `--render RECIPE` | — | Re-render parameter sets from `--params` without searching |
 | `--params FILE` | — | JSON: a params dict, a list of them, a `report.json`, or a seed-bank file |
+| `--seeds N...` | Each pick's own seed | Noise seeds for `--render` (default: each pick's own seed, else 0) |
 | `--check DIR...` | — | Re-render every pick of these output folders from their `report.json` and compare WAVs |
 | `--target TEXT` | Recipe's `TARGET` | Description to aim for |
 | `--alts TEXT...` | Recipe's `ALTS` | Confusions the sound must score lower than |
@@ -68,15 +69,16 @@ earshot forge --check out/forge_v2/*/final
 | `--shortlist N` | `2` | With `--robust`: robust-score this many × `--variants` candidates, keep the best robust means |
 | `--mode auto\|real\|designed` | `auto` | Critic mode: `real` requires realness; `designed` reports it but does not require it |
 | `--tone W` | Critic default (1.0) | Weight of the model-free tonal-balance penalty; `0` makes it report-only |
+| `--tone-target F` | Refs' own spread | dB distance from the refs' median balance that counts as typical |
 | `--reps N` | `1` | Renders per candidate inside the search (2 = half as lucky, twice as slow) |
 | `--no-bank` | — | Do not start from or add to the recipe's seed bank |
-| `--workers N` | `EARSHOT_THREADS` | Render threads |
+| `--workers N` | `EARSHOT_THREADS or 2` | Render threads |
 
 ## Output folder contents
 
 After a successful search, `--dir` contains:
 
-```
+```text
 made/keypress/
   keypress_01.wav        # Best diverse sounds (--variants of them)
   keypress_02.wav
@@ -151,7 +153,7 @@ sweep_ = dsp.osc(dsp.sweep(200, 6000, 3.0, 'ease', power=2.2), 'saw')  # pitch s
 hit = dsp.stack([(boom, 0, 0), (ding, 0.0, -9, 0.3)], onset_db=-24, peak_db=-1)
 ```
 
-Available sources: modal resonators (`modal`, `modal_cloud`), noise (`noise`, `air`), oscillators (`osc`, `sweep`), Shepard risers (`shepard`), sub drops (`sub_drop`), bells (`bell`), FM synthesis (`fm`), room acoustics (`room`, `room_ir`, `mic`), and layering utilities (`stack`, `align`, `xfade`).
+Available sources: modal resonators (`modal`, `modal_cloud`, `excite`), noise (`noise`, `air`, `wander`), oscillators (`osc`, `sweep`), Shepard risers (`shepard`), sub drops (`sub_drop`), bells (`bell`), FM synthesis (`fm`), excitation (`contact`), room acoustics (`room`, `room_ir`, `mic`), envelopes (`env_exp`, `env_curve`), filters (`butter`, `peq`, `svf`), and layering utilities (`stack`, `align`, `xfade`, `stereo`, `pan_to_stereo`, `fade`, `place`, `trim_tail`, `normalize`).
 
 ### Effects (`earshot/forge/fx.py`)
 
@@ -169,7 +171,7 @@ y = fx.eq_match(y, ['ref_01.wav', 'ref_02.wav'], amount=0.8)                    
 y = fx.doppler(dsp.air(3, r, center=500), speed=30, dist=3)                      # pass-by with air absorption
 ```
 
-Available effects: reverb (16-line modulated FDN with early reflections; IR cache for search efficiency), saturation (`tanh`/`tape`/`hard`/`fold`, oversampled), transient shaping, look-ahead peak limiter, EQ match (`match_curve`, `eq_bands`, `eq_match`), Doppler pass-by, pan/width/decorrelate, sweep filter (for risers and downlifters), varispeed/tape stop, glitch (slice repeat/reverse/drop/octave/crush), and granular synthesis.
+Available effects: reverb (`reverb`, `reverb_ir`, 16-line modulated FDN with early reflections; IR cache for search efficiency), `early` (early reflections only), saturation (`saturate`: `tanh`/`tape`/`hard`/`fold`, oversampled), transient shaping (`transient`), look-ahead peak limiter (`limit`), band split (`split`, Linkwitz-Riley), EQ match (`match_curve`, `eq_bands`, `eq_match`), Doppler pass-by (`doppler`), pan/width/decorrelate (`pan`, `width`, `decorrelate`), sweep filter (`sweep_filter`, for risers and downlifters), varispeed/tape stop (`varispeed`, `tape_stop`), bit-crush (`crush`), stutter (`stutter`), glitch (`glitch`: slice repeat/reverse/drop/octave/crush), granular synthesis (`granular`), and reverse swell (`reverse_swell`).
 
 ## The seed bank
 

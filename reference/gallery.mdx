@@ -1,6 +1,6 @@
 ---
-title: "Build a Listening Gallery of Forge Outputs"
-sidebarTitle: "gallery"
+title: "earshot gallery: Build a Static Forge Sound Gallery"
+sidebarTitle: "Gallery"
 description: "earshot gallery renders forge output folders into a self-contained static HTML page with audio players, spectrograms, and benchmark numbers."
 ---
 
@@ -108,13 +108,18 @@ earshot gallery out/forge_v2 -o share.html --embed-compressed --embed-codec opus
 </Accordion>
 
 <Accordion title="--embed-codec and --kbps">
-Choose the codec for `--embed-compressed` audio previews:
+Choose the codec for embedded audio. With `--embed-compressed`:
 
 - `mp3` (default) — plays in every current browser at 192 kbps
 - `opus` — Ogg Opus, smaller per quality level, default 128 kbps
 - `vorbis` — Ogg Vorbis, default 160 kbps
 
-Use `--kbps N` to override the default bitrate for the chosen codec.
+With `--embed` (lossless embedding):
+
+- `flac` (default) — lossless, about half the WAV size
+- `wav` — original bytes, no re-encoding
+
+Use `--kbps N` to override the default bitrate for a lossy codec.
 </Accordion>
 
 <Accordion title="--alias OLD=NEW">
@@ -123,6 +128,26 @@ Put an older recipe's output folder under another category's card. Useful when a
 ```bash
 earshot gallery --compare "v1:old/*/final" "v2:out/forge_v2/*/final" --alias keypress=typing_key -o v1_v2.html
 ```
+</Accordion>
+
+<Accordion title="--sub FOLDER">
+Pick a subfolder name other than `final` to look for sounds in each category directory. Default is `final`; pass `final_r2` to point at an earlier round's outputs without renaming the folders.
+
+```bash
+earshot gallery out/forge_v2 -o r2.html --sub final_r2
+```
+</Accordion>
+
+<Accordion title="--title TEXT">
+Override the HTML page title. The default title is `earshot forge: sound gallery` for a single folder or `earshot forge: before and after` for a `--compare` run.
+</Accordion>
+
+<Accordion title="--max-refs N">
+Maximum number of A/B reference recordings shown per category card (default `6`). Only applies when `--refs` is also set.
+</Accordion>
+
+<Accordion title="--max-mb N">
+When the output page is an embedded single file, emit a note when its size exceeds `N` MB (default `25`). Use a lower `--kbps`, switch to `--embed-codec opus`, or build fewer categories to reduce size.
 </Accordion>
 
 </AccordionGroup>

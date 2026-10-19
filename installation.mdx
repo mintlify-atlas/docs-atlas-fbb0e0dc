@@ -1,7 +1,7 @@
 ---
-title: "Install Earshot and Set Up the Model Cache"
+title: "Install Earshot: Python Setup, Models, and Verification"
 sidebarTitle: "Installation"
-description: "Install Earshot on Python 3.10+, download the two open models into a local cache, and verify your setup with earshot doctor."
+description: "Install Earshot on Python 3.10+, download the pinned CLAP and AST models (~1.1 GB), and verify your setup with earshot doctor --load."
 ---
 
 Earshot runs entirely on CPU — no GPU, no cloud calls, no API keys required for core functionality. The two open-source models it uses (CLAP and AST) are downloaded once into a local cache and loaded from disk on every subsequent run. This page walks you through cloning the repo, creating a virtual environment, installing the correct CPU-only PyTorch wheel, and verifying everything works.

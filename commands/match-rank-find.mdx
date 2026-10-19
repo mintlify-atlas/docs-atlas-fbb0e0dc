@@ -1,7 +1,7 @@
 ---
-title: "Match, Rank, and Find Sounds with Text Queries"
+title: "earshot match, rank, find: Search Audio with Text Queries"
 sidebarTitle: "match / rank / find"
-description: "Check how well a sound matches a description, rank many candidates by query, or locate the best moments inside a long recording."
+description: "Check how well a sound matches a text description, rank many candidates by query, or locate the best moments inside a long recording."
 ---
 
 Three commands let you bring a text description and measure it against audio: `match` gives a calibrated verdict for one file, `rank` sorts many candidate files by how well they fit a description, and `find` returns precise start/end timestamps for the best moments inside a long recording. All three use the same calibrated CLAP vocabulary under the hood, so their z-scores are directly comparable.
@@ -27,7 +27,15 @@ earshot match FILE QUERY [--alts ALT...] [OPTIONS]
 </ParamField>
 
 <ParamField path="--alts" type="string[]">
-  Alternative descriptions the sound must NOT match — used as confusions in a forced-choice softmax (`p_vs_alts`). Only as meaningful as the alternatives you provide. Without `--alts`, no forced-choice probability is computed.
+  Alternative descriptions for a forced choice (`p_vs_alts`). Only as meaningful as the alternatives you provide. Without `--alts`, no forced-choice probability is computed.
+</ParamField>
+
+<ParamField path="--start SECONDS" type="float">
+  Judge only from this offset of the file (seconds).
+</ParamField>
+
+<ParamField path="--end SECONDS" type="float">
+  Judge only up to this offset of the file (seconds).
 </ParamField>
 
 ### Example
@@ -107,9 +115,12 @@ earshot rank "a fast whoosh" downloads/whooshes/ --top 5
 ```python
 from earshot import api
 
-ranked = api.rank('a fast whoosh', ['a.wav', 'b.wav', 'c.wav'])
-# returns a list sorted by z-score, highest first
-# each entry: {'path': ..., 'z': ..., 'verdict': ..., 'cosine': ...}
+result = api.rank('a fast whoosh', ['a.wav', 'b.wav', 'c.wav'])
+# result['summary']   — plain-language summary sentence
+# result['results']   — list sorted by z-score, highest first
+#   each entry: {'path', 'name', 'z', 'verdict', 'cosine', 'sounds_most_like'}
+# result['n_files']   — number of files ranked
+# result['skipped']   — unreadable files
 ```
 
 ---
@@ -173,8 +184,11 @@ Each result is a trim (start–end seconds) with its z-score and verdict. On a r
 ```python
 from earshot import api
 
-trims = api.find('typing.ogg', 'a single isolated key press')
-# returns a list of dicts: {'start': float, 'end': float, 'z': float, 'verdict': str}
+result = api.find('typing.ogg', 'a single isolated key press')
+# result['summary']    — plain-language summary
+# result['segments']   — list of non-overlapping matches, sorted by score
+#   each entry: {'start', 'end', 'duration', 'z', 'verdict', 'cosine', 'kind', 'peak_dbfs'}
+# result['n_candidates'] — total candidates evaluated
 ```
 
 ---

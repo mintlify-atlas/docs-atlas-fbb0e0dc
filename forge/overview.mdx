@@ -1,7 +1,7 @@
 ---
 title: "Sound Generation Overview: forge, fit, sfx, and kit"
 sidebarTitle: "Overview"
-description: "Earshot can make sounds from code, translate recordings into code, and render from a built-in bank of 201 effects — all on CPU, no recorded audio stored in the repo."
+description: "Make sounds from code, translate recordings to code, or render any of 201 built-in effects by id — all CPU-only, no recorded audio stored in the repo."
 ---
 
 Earshot's sound generation side lets an AI coding agent do something that was previously impossible without a sound library: write the code that makes a sound, listen to what was made, and improve it — then ship that sound as render code, never as a recording. Three distinct modes cover the full spectrum from creative synthesis to instant playback, and knowing which to reach for determines both the quality of the result and the time it takes.
@@ -49,7 +49,7 @@ This outer loop, where the agent reads the critic's words and edits the recipe i
 | `fit.json` | `fit1` | 15 | Recipes fitted from CC0 recordings: clicks, a tick, pops, touches, keys, a snap, a bell, a whoosh |
 | `pluck.json` | `pluck1` | 3 | Three tuned kalimba voices (`pluck/kalimba`, `pluck/kalimba_soft`, `pluck/kalimba_ring`) |
 
-The 34 forge v2 categories span the full motion-design vocabulary: whoosh_fast, whoosh_big, swish, swipe, riser, downlifter, pro_zip, impact, sub_drop, pro_sub_drop, logo_sting, pro_logo_sting, click, pro_click, hover_tick, pro_hover_tick, tap, pro_tap, toggle, pop, pro_pop, pro_pop_in, notify, pro_notify, shimmer, pro_shimmer, glitch, pro_glitch, typing_key, pro_typing_key, pro_typing_run, pluck, and the 15 fitted sounds under `fit/`.
+The 34 forge v2 categories span the full motion-design vocabulary: whoosh_fast, whoosh_big, pro_whoosh_big, swish, swipe, riser, pro_riser, downlifter, pro_zip, impact, pro_impact, sub_drop, pro_sub_drop, logo_sting, pro_logo_sting, click, pro_click, hover_tick, pro_hover_tick, tap, pro_tap, toggle, pop, pro_pop, pro_pop_in, notify, pro_notify, shimmer, pro_shimmer, glitch, pro_glitch, typing_key, pro_typing_key, pro_typing_run, plus the 15 fitted sounds under `fit/` and the 3 tuned voices in `pluck/`.
 
 ## Which commands load models
 

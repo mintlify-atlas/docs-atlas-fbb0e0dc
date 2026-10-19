@@ -51,11 +51,11 @@ earshot timeline FILE [--video V] [--cues C] [OPTIONS]
 | Field | What it contains |
 |---|---|
 | `events` | Detected audio events — start time, level, tag, z-score, AudioSet label |
-| `sections` | Coarser structural boundaries (intro, body, outro, etc.) |
-| `loudness` | Short-term LUFS curve at 0.5 s resolution |
-| `beats` | Beat grid times and estimated tempo (BPM) |
+| `sections` | Coarser structural boundaries with genre, mood, and source tags |
+| `loudness` | BS.1770 curves (momentary, short-term), integrated LUFS, true peak, LRA, silences, clipping |
+| `music` | Beat grid times, estimated tempo (BPM), downbeats, pulse clarity, confidence |
 | `cuts` | Visual cut times detected from the video picture |
-| `cut_sync` | Each cut matched to the audio event that answers it (onset, whoosh peak, level peak) |
+| `sync` | Each cut and cue matched to the audio event that answers it (onset, whoosh peak, level peak) |
 
 ### Examples
 
@@ -79,13 +79,14 @@ earshot timeline mix.wav --cues cues.json
 from earshot import api
 
 result = api.timeline('soundtrack.wav', video='film.mp4')
-# result['events']    — detected SFX events
-# result['sections']  — structural boundaries
-# result['loudness']  — {ts, Ls} loudness curve
-# result['beats']     — beat times and tempo
-# result['cuts']      — visual cut times
-# result['cut_sync']  — each cut → matched audio event
+# result['events']    — detected SFX events with tags, levels, timing
+# result['sections']  — structural section boundaries with genre/mood tags
+# result['loudness']  — BS.1770 loudness curves, true peak, silences, clipping
+# result['music']     — beat grid: {tempo, beats, downbeats, pulse_clarity, confidence}
+# result['cuts']      — visual cut times detected from the video
+# result['sync']      — {'cuts': {...}, 'cues': {...}} each cut/cue matched to an audio event
 # result['summary']   — plain-language paragraph
+# result['text']      — the full listening transcript (ASCII, chronological)
 ```
 
 ---
@@ -114,6 +115,18 @@ earshot sheet FILE -o out.png [--video V] [--cues C] [OPTIONS]
 
 <ParamField path="--cues C" type="string">
   Cue events to mark (same format as `timeline --cues`).
+</ParamField>
+
+<ParamField path="--from / --start SECONDS" type="float">
+  Zoom: render the sheet only from this time (same context window as `timeline --from`).
+</ParamField>
+
+<ParamField path="--to / --end SECONDS" type="float">
+  Zoom: render the sheet only up to this time.
+</ParamField>
+
+<ParamField path="--detail" type="string">
+  Timeline model budget passed through to the underlying `timeline` call: `low`, `normal` (default), or `high`.
 </ParamField>
 
 <ParamField path="--width N" type="integer">
@@ -149,9 +162,14 @@ earshot sheet soundtrack.wav -o sheet.png --video film.mp4
 from earshot import api
 
 result = api.sheet('soundtrack.wav', out='sheet.png', video='film.mp4')
-# result['png']      — path to the rendered PNG
-# result['timeline'] — the full timeline data (same as api.timeline())
-# result['summary']  — plain-language paragraph
+# result['png']              — path to the rendered PNG
+# result['summary']          — plain-language paragraph
+# result['timeline_summary'] — the timeline's summary sentence
+# result['width'], result['height'] — image dimensions in pixels
+# result['thumbnails']       — number of video frames shown
+# result['labelled_events']  — number of events with a label placed
+# result['events']           — total event tick count
+# result['cuts']             — number of cut lines drawn
 ```
 
 ---
@@ -160,7 +178,7 @@ result = api.sheet('soundtrack.wav', out='sheet.png', video='film.mp4')
 
 From the held-out evaluation on a 60 s soundtrack with every SFX placement logged:
 
-- **93%** of placed sound effects detected as events (96% of those louder than the music bed; 89% of quiet ones under music)
+- **93%** of placed sound effects detected as events (96% of those louder than the music bed; 89% of those under it; 65% of those more than 6 dB under the music)
 - **84%** of sync-aligned placements within 5 ms of the true offset; **96%** within one video frame
 - Beat grid: a 120 BPM score found at exactly 120.0 BPM
 

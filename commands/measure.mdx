@@ -1,7 +1,7 @@
 ---
-title: "Objective Audio Measurements Without AI Models"
+title: "earshot measure: Objective Audio Measurements, No Models"
 sidebarTitle: "measure"
-description: "Run earshot measure for LUFS, true peak, LRA, envelope, spectrum, tempo, and key — no models loaded, no network, fast."
+description: "Run earshot measure for LUFS, true peak, LRA, envelope, spectrum, tempo, and key — no ML models loaded, no network required, results in milliseconds."
 ---
 
 `earshot measure` is earshot's purely objective measurement layer: no CLAP, no AudioSet, no model loading, no network. It is implemented entirely in numpy and scipy and runs in a fraction of a second once the file is decoded. Every number it returns — loudness, true peak, loudness range, envelope timing, spectral balance, tempo — is what a meter or analyser would report, not an opinion about what the sound sounds like. Use it whenever you need fast, scriptable, model-free acoustic facts.

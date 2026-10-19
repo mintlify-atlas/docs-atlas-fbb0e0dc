@@ -1,7 +1,7 @@
 ---
-title: "Translate Recordings to Code with earshot fit"
+title: "earshot fit: Translate Any Recording into Synthesis Code"
 sidebarTitle: "fit"
-description: "earshot fit converts any recording into a Python forge recipe module by fitting a synthesis model — then render new takes, variations, and morphs from the code."
+description: "earshot fit fits a synthesis model to your recording and writes it as a Python recipe — then render new takes, knob variations, and morphs from the code."
 ---
 
 `earshot fit` takes a recording and produces code. The method is analysis-by-synthesis: it tries several small synthesis models (ringing modes, tracked partials, a time-varying noise gesture, layered hybrids) and fits each one's parameters until its render matches the recording. Then it writes the best-fitting model as a Python forge recipe module whose `render()` re-creates the sound. The module stores the sound's structure — modes, partials, band envelopes — not its samples. From that structure it can make new takes with fresh noise, variations controlled by knobs (size, damping, pitch, brightness, decay), and morphs between two recordings.
@@ -44,14 +44,20 @@ earshot fit --forge made/click_fit.py --budget 96 --dir made/click_variations
 | `--layers KINDS` | Hybrid layers, e.g. `sines,modal,spectral` (default `modal,spectral`) |
 | `--render PATH` | Resynthesis WAV path (default: next to the recipe) |
 | `--report` | Also measure the render-vs-render floor and CLAP cosine; write `<name>.report.json` |
-| `--clap` | Let CLAP help choose the best fit (loads CLAP, ~50 s) |
+| `--clap` | Let CLAP cosine take part in choosing the best fit (loads CLAP, ~50 s) |
+| `--describe` | Run `earshot describe` on the original and the resynthesis |
+| `--target TEXT` | Critic description for the recipe (default: from the refset category or sound) |
 | `--seed N` | Seed for the identity render (default 0) |
+| `--fast` | Cheaper fitter settings — useful for previews |
+| `--takes` | Score every candidate on seeds 0, 1, 2 instead of seed 0 alone (better for making takes) |
 | `--morph A B` | Fit both recordings with one kind and write a morph recipe |
 | `--amount F` | With `--morph`: 0 = A, 1 = B (default 0.5) |
-| `--forge RECIPE_PY` | Search variations of a fitted recipe with the forge critic |
+| `--forge RECIPE_PY` | Search variations of a fitted recipe file with the forge critic |
 | `--budget N` | With `--forge`: candidates the critic scores (default 96) |
-| `--dir PATH` | With `--forge`: output folder |
-| `--takes` | Score every candidate on seeds 0, 1, 2 instead of seed 0 alone (better for making takes) |
+| `--pop N` | With `--forge`: population size per generation (default 16) |
+| `--variants N` | With `--forge`: diverse sounds to keep (default 4) |
+| `--refset CATEGORY` | With `--forge`: the critic's refset category (default: the recipe's `REFSET`) |
+| `--quiet` | Do not print the candidates while fitting |
 
 ## Measured accuracy
 
@@ -61,7 +67,7 @@ Validation was run on 12 real recordings — two each of click, typing key, pop,
 |---|---|
 | Median CLAP cosine (recording vs its recipe's render) | **0.945** (minimum 0.881) |
 | `earshot describe` top tag the same for both | **10 of 12** |
-| Blind test: listener could not identify the recording | **12 of 12 trials** (could not tell which clip was real) |
+| Blind test: listener could not tell recording from render | **12 trials** — both clips sounded the same (could not identify which was real) |
 | Median envelope correlation | 0.98 |
 | Median mel spectral distance | 3.71 dB (against a median model floor of 2.96 dB) |
 | Median tonal balance distance | 2.0 dB |

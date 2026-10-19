@@ -97,10 +97,11 @@ from earshot import api
 result = api.realness('sound.wav')
 # result['p_real']    — probability (0–1)
 # result['verdict']   — 'real or pro-produced' | 'uncertain' | 'likely code-synthesized'
-# result['why']       — list of evidence strings
-# result['evidence']  — structured evidence records
-# result['segments']  — per-window scores for files over 6 s
-# result['summary']   — plain-language summary
+# result['why']       — one-line reason string (main signal that drove the verdict)
+# result['evidence']  — list of evidence strings (CLAP head score, signal facts, silence note)
+# result['segments']  — per-4-s-window scores for files over 6 s [{start, end, p_real, verdict}]
+# result['summary']   — plain-language summary with thresholds used
+# result['note']      — calibration context and caveats
 ```
 
 ```python Multiple files

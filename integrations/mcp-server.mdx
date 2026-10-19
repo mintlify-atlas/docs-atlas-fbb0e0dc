@@ -1,7 +1,7 @@
 ---
-title: "Run Earshot as an MCP Server for Claude Code"
+title: "Run Earshot as an MCP Server for Claude Code Agents"
 sidebarTitle: "MCP Server"
-description: "earshot mcp starts an MCP server that exposes every tool to Claude Code and other agents with models kept warm across calls."
+description: "earshot mcp starts a stdio MCP server that exposes every earshot tool to Claude Code and other agents, with AI models kept warm across calls."
 ---
 
 Every earshot CLI call is a fresh process: the two AI models — CLAP and AST — reload from disk each time, which takes roughly 20–40 seconds before the first answer arrives. The MCP server changes that entirely. Start it once and the models load on the first tool call, then stay resident in memory for the lifetime of the server process. Subsequent calls return in seconds, making it practical to run a full listen-describe-match-critique loop without waiting for a cold start every step.
@@ -50,14 +50,15 @@ Any MCP-compatible client can be configured via a `.mcp.json` file. Place this i
       "command": "/path/to/earshot/.venv/bin/python",
       "args": ["-m", "earshot", "mcp"],
       "env": {
-        "EARSHOT_THREADS": "3"
+        "EARSHOT_THREADS": "3",
+        "GEMINI_API_KEY": "${GEMINI_API_KEY:-}"
       }
     }
   }
 }
 ```
 
-Again, replace `/path/to/earshot` with the real path on your machine.
+Replace `/path/to/earshot` with the real path on your machine. The `GEMINI_API_KEY` entry is only needed for the optional `llm_critique` tool; Claude Code expands `${GEMINI_API_KEY:-}` from your shell environment at startup so the key never has to be written literally into the file.
 
 ## Available MCP Tools
 
@@ -65,16 +66,10 @@ The server exposes one tool per CLI command. Tools backed by models load them on
 
 <CardGroup cols={2}>
   <Card title="Listening & Analysis" icon="ear">
-    `describe` · `match` · `rank` · `find` · `compare` · `ab` · `realness` · `timeline` · `sheet` · `critique` · `profile` · `measure`
+    `measure` · `describe` · `match` · `rank` · `find` · `compare` · `ab` · `realness` · `timeline` · `sheet` · `critique` · `doctor` · `llm_critique`
   </Card>
   <Card title="Sound Bank (No Models)" icon="music">
-    `sfx_list` · `sfx_render` · `sfx_check` · `kit_init` · `kit_render` · `kit_check` · `kit_audition`
-  </Card>
-  <Card title="Forge & Fit" icon="wand-magic-sparkles">
-    `forge` · `fit`
-  </Card>
-  <Card title="Utilities" icon="stethoscope">
-    `doctor` · `llm_critique` (optional)
+    `sfx_list` · `sfx_render` · `kit_render`
   </Card>
 </CardGroup>
 
@@ -82,6 +77,7 @@ The server exposes one tool per CLI command. Tools backed by models load them on
 
 | Tool | What it does |
 |---|---|
+| `measure` | Objective measurements only — LUFS, true peak, LRA, envelope, spectrum, tempo/key (no models) |
 | `describe` | What a file sounds like: calibrated tags (z), AudioSet labels, measurements |
 | `match` | How well a description fits: cosine, z among the vocabulary, a verdict |
 | `rank` | Many candidate files sorted by a description |
@@ -92,19 +88,11 @@ The server exposes one tool per CLI command. Tools backed by models load them on
 | `timeline` | Second-by-second listening transcript of a whole film |
 | `sheet` | Annotated PNG: frames, events, spectrogram, loudness, sync markers |
 | `critique` | Scorecard against a profile of professional launch films |
-| `profile` | Build your own reference profile from films you admire |
-| `measure` | Objective measurements only — LUFS, true peak, LRA, envelope, spectrum, tempo/key |
-| `forge` | Make a sound in code and improve it by listening |
-| `fit` | Translate a recording into a forge recipe module |
-| `sfx_list` | Browse the shipped bank of 201 sounds by kind or category |
-| `sfx_render` | Render one bank sound aimed at a picture moment |
-| `sfx_check` | Audit a sound for clicks, cut tails, clipping, rising pitch |
-| `kit_init` | Create a film sound kit from a preset |
-| `kit_render` | Render a kit into takes with measured sync points |
-| `kit_check` | Warn on double attacks, rising pitch, or kit anomalies |
-| `kit_audition` | Preview all kit takes in one audition file |
-| `llm_critique` | Optional Gemini audio-LLM critique (requires API key and consent) |
 | `doctor` | Check the install, models, data files, and CPU settings |
+| `llm_critique` | Optional Gemini audio-LLM critique (requires API key and consent) |
+| `sfx_list` | Browse the shipped bank of 201 sounds by kind or category (no models) |
+| `sfx_render` | Render one bank sound aimed at a picture moment (no models) |
+| `kit_render` | Render a kit into takes with measured sync points (no models) |
 
 </Accordion>
 

@@ -1,5 +1,5 @@
 ---
-title: "earshot describe: Natural-Language Audio Tags"
+title: "earshot describe: Natural-Language Audio Tag Analysis"
 sidebarTitle: "describe"
 description: "Describe any audio file in natural language using calibrated z-score tags, AudioSet labels, and acoustic measurements — no query required."
 ---
@@ -86,11 +86,12 @@ print(result['summary'])
 ```python Full API namespace
 from earshot import api
 result = api.describe('file.wav')
-# result['summary']   — the plain-language paragraph
-# result['tags']      — calibrated vocabulary tags with z-scores
-# result['hints']     — unvalidated music/mood/voice tags
-# result['audioset']  — AudioSet labels with probabilities
-# result['measurements'] — objective acoustic measurements
+# result['summary']       — the plain-language paragraph
+# result['top_tags']      — calibrated vocabulary tags with z-scores
+# result['music_hints']   — unvalidated music/mood/voice tags
+# result['audioset']      — AudioSet labels with probabilities
+# result['measurements']  — objective acoustic measurements
+# result['tags']          — best tag per category (dict of category -> [{term, z, cosine}])
 ```
 
 ```python Trim a region

@@ -1,7 +1,7 @@
 ---
 title: "Render Built-in Sound Effects with earshot sfx and kit"
 sidebarTitle: "sfx / kit"
-description: "earshot sfx renders one of 201 built-in sounds by id with knob control. earshot kit renders a whole film's effects kit with measured sync points — no models, no network."
+description: "earshot sfx renders any of 201 built-in sounds by id with knob control. earshot kit builds a film's full sound kit with sync points — no models needed."
 ---
 
 `earshot sfx` and `earshot kit` are the delivery layer: a bank of 201 sounds stored as render code, playable by id in seconds, with knobs that edit recipe parameters directly rather than resampling audio. `sfx` renders a single sound aimed at a moment in the picture; `kit` renders a whole film's effects kit into cached takes with measured sync points. Neither command loads a model or makes a network request — a film pipeline can render all its sounds in one process in under a minute, and re-render only what changed.
@@ -23,17 +23,20 @@ Bank IDs take the form `<category>/<member>`. Use `earshot sfx list` to see ever
 ## earshot sfx commands
 
 ```bash
-# List bank sounds, optionally filtered by kind
+# List bank sounds, optionally filtered by kind or category
 earshot sfx list --kind whoosh
+earshot sfx list --category whoosh_fast
 
 # Render one sound to a file, aimed at a specific moment
 earshot sfx render whoosh_fast/crisp -o w.wav --dur 0.8 --apex 0.32
+earshot sfx render whoosh_fast/crisp -o w.wav --seed 7 --dur 0.8 --apex 0.32 --peak -3
 
 # Render a tuned note from the kalimba
 earshot sfx render pluck/kalimba -o e5.wav --pitch E5
 
-# Audit any sound-effect file for common problems
+# Audit any sound-effect file for common problems; give context for accurate results
 earshot sfx check w.wav
+earshot sfx check w.wav --category whoosh_fast --role whoosh.short
 ```
 
 ## Knobs: editing parameters, never resampling
@@ -56,11 +59,16 @@ Knobs edit the recipe's own parameters directly. The audio is rendered at the ta
   | pluck | f0 | 130–2100 Hz |
   | notify / pro_notify | f0 (head fundamental) | 220–3200 / 600–3200 Hz |
   | click, pro_click, toggle | pitch (tink centre), landed on the heard partial | 1.2–9.5 kHz / 1.6–8 kHz |
+  | hover_tick, pro_hover_tick | ping_f (tick_f), only members whose ping is on | 3–15 kHz |
+  | tap, pro_tap, pro_pop_in | body_f (knock_f, glass_f) | 70–220 Hz |
+  | pop / pro_pop | f0 (f_hi, f_lo, f_blip / n_f0, n_f1) | 400–3500 / 280–1400 Hz |
   | sub_drop, pro_sub_drop | f1 (landing pitch; f0 keeps the glide ratio) | 28–62 Hz |
   | pro_zip | f1 (f0, fpk) | 80 Hz–12 kHz |
-  | logo_sting / pro_logo_sting | root / g_root | 300–2200 / 50–1800 Hz |
+  | riser, pro_riser, downlifter | tf0 (only members whose tonal layer is on) | 60–4000 / 150–2500 Hz |
+  | logo_sting / pro_logo_sting | root / g_root (root) | 300–2200 / 50–1800 Hz |
   | impact, pro_impact | body_f1 (body_f0, sub_f) | 34–75 Hz |
-  | pluck, bell | f0 | per-recipe range |
+  | pro_whoosh_big | sub_f (only sub-led members) | 25–120 Hz |
+  | shimmer, pro_shimmer | key (pitch class only; the register stays) | — |
 
   Noise sounds (whoosh_fast, whoosh_big, swish, swipe, glitch, pro_glitch, typing families) refuse a pitch and explain why. Targets outside the parameter range and members whose tonal layer is off are also refused with a reason. The render is measured: `edits['pitch']['measured_hz']`, `cents_off`, and `ok` (within 50 cents; pluck E5, notify G5, pro_sub_drop G1 each land at 0 cents).
 </ParamField>
@@ -69,8 +77,16 @@ Knobs edit the recipe's own parameters directly. The audio is rendered at the ta
   **Take seed.** `None` (omitted) renders the delivered final at its own seed. Any other integer is a new take of the same member: noise, jitter, and micro-timing change; the character stays. Finals were picked on robust re-renders, so any seed gives a usable result.
 </ParamField>
 
-<ParamField path="--level" type="float">
-  **Peak level in dBFS** (default −1). Values above 0 dBFS are refused to prevent clipping. Use `--weight` (passed through the Python API) to scale by relative loudness: 0.5 = 6 dB down.
+<ParamField path="--peak" type="float">
+  **Sample peak in dBFS** (default −1). Values above 0 dBFS are refused to prevent clipping.
+</ParamField>
+
+<ParamField path="--weight" type="float">
+  **Relative level scaling.** Scales the peak by 6 dB per doubling: `0.5` = 6 dB down. Subject to the same 0 dBFS ceiling as `--peak`.
+</ParamField>
+
+<ParamField path="--sr" type="integer">
+  **Sample rate of the output WAV.** One of `44100`, `48000` (default), `88200`, or `96000`. The render is always done at 48 kHz and resampled to the target rate.
 </ParamField>
 
 ## The audit: earshot sfx check
@@ -96,17 +112,22 @@ The audit runs automatically on every bank render and on any WAV you pass to `ea
 ## earshot kit commands
 
 ```bash
-# Create a kit JSON from a preset
+# Create a kit JSON from a preset (calm | crisp | minimal)
 earshot kit init --preset calm -o audio/kit.json
+earshot kit init --preset crisp -o audio/kit.json --force   # overwrite an existing file
 
-# Render all takes and write kit.lock.json with measured sync points
+# Render all takes (cached) and write kit.lock.json with measured sync points
 earshot kit render audio/kit.json --out audio/kit
+earshot kit render audio/kit.json --out audio/kit --force   # re-render everything
 
 # Validate the kit file and audit every take
-earshot kit check audio/kit.json --out audio/kit
+earshot kit check audio/kit.json
+earshot kit check audio/kit.json --out audio/kit            # use already-rendered takes from --out
+earshot kit check audio/kit.json --json                     # print full result as JSON
 
 # Write every take role by role at its mix level, with a cue list
 earshot kit audition audio/kit.json -o audition.wav
+earshot kit audition audio/kit.json -o audition.wav --out audio/kit  # use existing takes
 ```
 
 ## Kit roles
@@ -201,7 +222,7 @@ MCP tools (available via `earshot mcp`): `sfx_list`, `sfx_render` (writes a WAV,
 
 ## Bank ID overview
 
-```
+```text
 # Whooshes and sweeps
 whoosh_fast/crisp      whoosh_fast/heavy     whoosh_fast/tight     whoosh_fast/sleeve    whoosh_fast/wide
 whoosh_big/swell       whoosh_big/deep       whoosh_big/full       whoosh_big/pad

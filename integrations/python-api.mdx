@@ -23,7 +23,7 @@ from earshot import api
 
 api.describe('whoosh.wav')
 api.match('key.ogg', 'a deep thocky mechanical keyboard press', alts=['a clicky blue switch'])
-api.rank('a single isolated key press', ['take1.wav', 'take2.wav', 'take3.wav'])
+api.rank(['take1.wav', 'take2.wav', 'take3.wav'], 'a single isolated key press')
 ```
 
 Both styles give access to the same underlying functions. The `api` namespace is convenient when you want tab-completion or an explicit reference to the module.
@@ -62,12 +62,12 @@ result = api.match('key.ogg', 'a deep thocky mechanical keyboard press',
 
 ---
 
-**`api.rank(query, paths)`** → sorted list
+**`api.rank(paths, query)`** → sorted list
 
 Ranks many candidate files by a description. Returns the list sorted best-first. Useful for picking among a folder of downloads.
 
 ```python
-ranked = api.rank('a soft felt mallet hit', ['sfx/a.wav', 'sfx/b.wav', 'sfx/c.wav'])
+ranked = api.rank(['sfx/a.wav', 'sfx/b.wav', 'sfx/c.wav'], 'a soft felt mallet hit')
 ```
 
 ---
