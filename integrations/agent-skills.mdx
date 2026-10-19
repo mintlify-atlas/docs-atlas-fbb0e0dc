@@ -1,0 +1,91 @@
+---
+title: "Agent Skills: Teach Claude Code to Use Earshot"
+sidebarTitle: "Agent Skills"
+description: "Two Claude Code skills ship with Earshot — one for listening workflows and one for producing premium real-recording soundtracks for code-made films."
+---
+
+Two skills ship in earshot's `skills/` directory. Each is a Markdown file (plus supporting scripts and templates) that teaches Claude Code — or any agent that reads skill files — how to use earshot's tools correctly in a particular context. Copy or symlink them into `~/.claude/skills/` for global use, or into a project's `.claude/skills/` to scope them to one film or audio project.
+
+## skills/earshot
+
+The `skills/earshot` skill teaches an agent the full earshot workflow from first principles: which command to reach for when, how to read the numbers it returns, and when not to trust them.
+
+**What it covers:**
+
+- **Loop 1 — choosing an asset**: rank candidates with `earshot rank`, find the cleanest moment with `earshot find`, describe the trim with `earshot describe`, check realness, then A/B two options with `earshot ab`
+- **Loop 2 — reviewing a mix or film**: run `earshot timeline` for the listening transcript, `earshot sheet` for the annotated PNG, and `earshot critique` for the launch-video scorecard
+- **Loop 3 — A/B a change**: compare before/after with `earshot ab` and measurements from `earshot measure`
+- **Loop 4 — making a sound in code**: write a forge recipe, run the critic-search loop, read the critic's words, rewrite the recipe, and repeat
+- **Loop 5 — making a film's sound kit**: initialise from a preset, fit it to the film, render to cached takes, and check with `earshot kit check`
+
+It also documents exactly how to read each number earshot returns — z-scores, p_real, cosine, LUFS, sync offsets — and which ones to trust versus treat as hints. Crucially, it states the Goodhart limits plainly: the search optimises earshot's own models, and made sounds routinely out-score real recordings on model checks once a search has tuned against them. An agent that has read this skill will reach for measurements and spectrograms rather than model scores when judging finished forge outputs.
+
+**When to use it:** any session where you want an agent to autonomously pick the right earshot command for an audio task — sourcing, trimming, reviewing a mix, running a forge search, or building a sound kit.
+
+## skills/real-sound
+
+The `skills/real-sound` skill is a complete process for producing premium, realistic soundtracks for code-made films from real licensed recordings. Where `skills/earshot` teaches the tools, `skills/real-sound` teaches the entire pipeline from brief to delivery.
+
+**What it covers:**
+
+1. **Sourcing** — finding candidates on licensed audio libraries, downloading them, and recording every source in an audit manifest
+2. **Licence audit** — checking every recording's licence terms for commercial use, attribution requirements, and derivative restrictions before it touches the project
+3. **Music edit** — editing a single licensed music track at bar lines using `arrange.py`, locking it to the film's BPM and drop moment
+4. **JSON sound design** — writing `audio/sounddesign.json` with rules that map cue kinds to real recordings, including slice offsets, levels, panning, and per-word typing variants
+5. **Deterministic mixer** — running `mix.py` to render `out/audio/soundtrack.wav` and per-stem files deterministically from the design and cue files
+6. **Measured QA** — running `qa.py --layers --stems` to catch clicks, chopped splices, masked events, and sync errors before the critic loop
+7. **Multi-lens critique** — earshot `timeline`, `sheet`, and `critique`; plus specialised prompt-driven lenses for sync, tonal balance, masking, edge artifacts, and director notes
+8. **Mastering** — running `master.py` to hit the target LUFS and true peak ceiling
+9. **Credits** — generating `CREDITS_description.txt` from the manifest with `credits.py`
+10. **Mux** — passing `out/audio/soundtrack.wav` to Cinetic's `render.sh --audio` for the final film, or using `mux.mjs` for films rendered outside Cinetic
+
+**earshot's role in the real-sound pipeline:** earshot `rank` and `find` shortlist and trim recordings; `match` and `realness` verify that a chosen trim is what it claims to be and reads as a real recording; `timeline`, `sheet`, and `critique` supply the QA transcript and scorecard that the critic lenses act on.
+
+**Prompt templates** in `skills/real-sound/templates/prompts/`:
+
+| Template | Purpose |
+|---|---|
+| `designer.md` | Sound designer lens — maps cue kinds to real recordings, writes design fragments |
+| `critic_director.md` | Director lens — overall impression, energy arc, emotional fit |
+| `critic_edges.md` | Edge-artifact lens — clicks, cut tails, chopped splices |
+| `critic_masking.md` | Masking lens — sounds buried under music or each other |
+| `critic_sync.md` | Sync lens — sound-to-picture timing, onset on cue frames |
+| `critic_tonal.md` | Tonal-balance lens — frequency clashes, brightness, mud |
+| `fixer.md` | Fix operator — translates critic findings into design changes |
+| `music_supervisor.md` | Music supervisor — selects and edits the licensed music track |
+| `sourcing.md` | Sourcing agent — writes search queries, downloads, logs sources |
+| `licence_audit.md` | Licence auditor — checks every recording's terms before use |
+
+## Installing the Skills
+
+<Steps>
+  <Step title="Global install (all projects)">
+    Copy both skills into your user-level Claude skills directory:
+
+    ```bash
+    cp -r skills/earshot ~/.claude/skills/
+    cp -r skills/real-sound ~/.claude/skills/
+    ```
+  </Step>
+  <Step title="Project-local install">
+    Copy into a specific project's `.claude/skills/` so they only activate in that project:
+
+    ```bash
+    cp -r skills/earshot .claude/skills/
+    cp -r skills/real-sound .claude/skills/
+    ```
+  </Step>
+</Steps>
+
+<Note>
+Symlinks work too. If you want edits to the skills to take effect immediately without re-copying:
+
+```bash
+ln -s /path/to/earshot/skills/earshot ~/.claude/skills/earshot
+ln -s /path/to/earshot/skills/real-sound ~/.claude/skills/real-sound
+```
+</Note>
+
+<Tip>
+Skills are plain Markdown files. Open `skills/earshot/SKILL.md` or `skills/real-sound/SKILL.md` in any editor and annotate them with project-specific rules — a particular library you source from, a house LUFS target, a note about which cue kinds your films use most. The agent will follow your additions just as it follows the originals.
+</Tip>

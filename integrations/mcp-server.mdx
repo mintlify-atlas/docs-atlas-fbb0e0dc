@@ -1,0 +1,133 @@
+---
+title: "Run Earshot as an MCP Server for Claude Code"
+sidebarTitle: "MCP Server"
+description: "earshot mcp starts an MCP server that exposes every tool to Claude Code and other agents with models kept warm across calls."
+---
+
+Every earshot CLI call is a fresh process: the two AI models — CLAP and AST — reload from disk each time, which takes roughly 20–40 seconds before the first answer arrives. The MCP server changes that entirely. Start it once and the models load on the first tool call, then stay resident in memory for the lifetime of the server process. Subsequent calls return in seconds, making it practical to run a full listen-describe-match-critique loop without waiting for a cold start every step.
+
+## Why the MCP Server
+
+When you run earshot from the terminal, each invocation pays the full model-load cost. For a single check that is fine. For an agent running ten or twenty audio judgements in one session — ranking candidates, trimming a recording, then critiquing the final mix — that overhead adds up to tens of minutes of waiting.
+
+The MCP server solves this by keeping the models warm across calls:
+
+- **Cold CLI call**: ~20–40 s for model load, then a few seconds to process
+- **Warm MCP call**: a few seconds, no reload
+
+<Note>
+`measure`, `sfx`, and `kit` tools load no models at all. They run fast even on the very first call, whether you use the CLI or the MCP server.
+</Note>
+
+## Starting the Server
+
+Start the MCP server directly with:
+
+```bash
+python -m earshot mcp
+```
+
+Once running, every earshot tool is available to any MCP-compatible client — Claude Code, Cursor, or any agent that speaks the Model Context Protocol.
+
+## Claude Code Setup
+
+Add earshot to Claude Code with a single command. Replace `/path/to/earshot` with the absolute path to your earshot clone:
+
+```bash
+claude mcp add earshot --scope user -e EARSHOT_THREADS=3 -- /path/to/earshot/.venv/bin/python -m earshot mcp
+```
+
+The `--scope user` flag registers the server for your user account so it is available in every Claude Code session. `EARSHOT_THREADS=3` is a good default for a typical laptop; see the threads note below.
+
+## `.mcp.json` Configuration
+
+Any MCP-compatible client can be configured via a `.mcp.json` file. Place this in your project root or your home directory:
+
+```json
+{
+  "mcpServers": {
+    "earshot": {
+      "command": "/path/to/earshot/.venv/bin/python",
+      "args": ["-m", "earshot", "mcp"],
+      "env": {
+        "EARSHOT_THREADS": "3"
+      }
+    }
+  }
+}
+```
+
+Again, replace `/path/to/earshot` with the real path on your machine.
+
+## Available MCP Tools
+
+The server exposes one tool per CLI command. Tools backed by models load them on first use and keep them warm. The `sfx` and `kit` tools are pure DSP — they load no models and are fast even on a completely cold server.
+
+<CardGroup cols={2}>
+  <Card title="Listening & Analysis" icon="ear">
+    `describe` · `match` · `rank` · `find` · `compare` · `ab` · `realness` · `timeline` · `sheet` · `critique` · `profile` · `measure`
+  </Card>
+  <Card title="Sound Bank (No Models)" icon="music">
+    `sfx_list` · `sfx_render` · `sfx_check` · `kit_init` · `kit_render` · `kit_check` · `kit_audition`
+  </Card>
+  <Card title="Forge & Fit" icon="wand-magic-sparkles">
+    `forge` · `fit`
+  </Card>
+  <Card title="Utilities" icon="stethoscope">
+    `doctor` · `llm_critique` (optional)
+  </Card>
+</CardGroup>
+
+<Accordion title="Full tool list">
+
+| Tool | What it does |
+|---|---|
+| `describe` | What a file sounds like: calibrated tags (z), AudioSet labels, measurements |
+| `match` | How well a description fits: cosine, z among the vocabulary, a verdict |
+| `rank` | Many candidate files sorted by a description |
+| `find` | Best moments inside a long recording, as sample trims |
+| `compare` | Nearest reference recordings and typicality |
+| `ab` | A/B two sounds: differences in words |
+| `realness` | Real recording vs code-synthesized, with evidence |
+| `timeline` | Second-by-second listening transcript of a whole film |
+| `sheet` | Annotated PNG: frames, events, spectrogram, loudness, sync markers |
+| `critique` | Scorecard against a profile of professional launch films |
+| `profile` | Build your own reference profile from films you admire |
+| `measure` | Objective measurements only — LUFS, true peak, LRA, envelope, spectrum, tempo/key |
+| `forge` | Make a sound in code and improve it by listening |
+| `fit` | Translate a recording into a forge recipe module |
+| `sfx_list` | Browse the shipped bank of 201 sounds by kind or category |
+| `sfx_render` | Render one bank sound aimed at a picture moment |
+| `sfx_check` | Audit a sound for clicks, cut tails, clipping, rising pitch |
+| `kit_init` | Create a film sound kit from a preset |
+| `kit_render` | Render a kit into takes with measured sync points |
+| `kit_check` | Warn on double attacks, rising pitch, or kit anomalies |
+| `kit_audition` | Preview all kit takes in one audition file |
+| `llm_critique` | Optional Gemini audio-LLM critique (requires API key and consent) |
+| `doctor` | Check the install, models, data files, and CPU settings |
+
+</Accordion>
+
+## Tips & Configuration
+
+<Tip>
+Set `EARSHOT_THREADS=3` for a typical laptop. The default is `min(4, cores/2)`, but 3 threads leaves room for the rest of your system when Claude Code is doing other work alongside audio analysis.
+</Tip>
+
+<Warning>
+On a slow machine, Claude Code may time out before the first tool call completes its model load. Start Claude Code with `MCP_TIMEOUT=60000` to extend the timeout to 60 seconds:
+
+```bash
+MCP_TIMEOUT=60000 claude
+```
+
+On Windows with PowerShell:
+
+```bash
+$env:MCP_TIMEOUT=60000; claude
+```
+</Warning>
+
+<Note>
+The optional `llm_critique` tool sends audio to Google Gemini for a rubric critique. It only activates when `GEMINI_API_KEY` is present in the environment. **Never write a literal API key into `.mcp.json` or any project file.** Claude Code reads it from your shell environment automatically when you use `${GEMINI_API_KEY}`.
+</Note>

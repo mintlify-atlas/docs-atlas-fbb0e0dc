@@ -1,0 +1,134 @@
+---
+title: "What Earshot Cannot Do: Known Limits"
+sidebarTitle: "Limits"
+description: "Earshot's honest limits — what it hears reliably, what it can only hint at, and what it cannot judge at all."
+---
+
+Earshot gives an agent measured evidence about sound, not taste. It hears through two open models (CLAP and AST) and a set of signal measurements. Not every audio question is answerable, and some answers are better described as informed guesses than verdicts. Read this before trusting a result in a production pipeline.
+
+## What Earshot Can Do Reliably
+
+The following categories of analysis are trustworthy. The underlying evidence is either a meter (a measurement, not an opinion) or a statistical claim validated on held-out data.
+
+<CardGroup cols={2}>
+
+<Card title="Loudness, timing, and sync" icon="ruler">
+LUFS, true peak, LRA, timing to the millisecond, offsets of hard hits to cut and cue frames (median 0 ms on Clawd, 96% within one frame), clipping, silence, tempo of steady music. These are meters.
+</Card>
+
+<Card title="Is this the kind of sound I asked for?" icon="magnifying-glass">
+On single, exposed sounds — a key press, a whoosh, rain, a glass ting — a "strong" match is very reliable on held-out recordings. "Plausible" and "weak" are hints worth a second check.
+</Card>
+
+<Card title="Picking among candidates" icon="list-ol">
+`earshot rank` and `earshot find` reliably sort and trim from real recordings.
+</Card>
+
+<Card title="Obvious code-synthesized sources" icon="code">
+Noise risers, simple FM bells, steady test tones flagged with ~92% precision when the verdict is firm. 6.7% of real clips get called synthesized; 5.5% of synthesized clips get called real.
+</Card>
+
+</CardGroup>
+
+## What Earshot Can Only Hint At
+
+These results are worth reading but should be treated as starting points for human review, not final verdicts.
+
+<AccordionGroup>
+
+<Accordion title="Event tags inside a busy mix">
+Tags of what each hit "is" inside a soundtrack: right about half the time for exposed events, a quarter of the time for events buried under the music bed. Times and levels are accurate; the label is a guess. Grass footsteps under music scored 0% correct tags.
+</Accordion>
+
+<Accordion title="Music genre and mood">
+Often wrong — an upbeat track's top mood was a dark one 18% of the time. Earshot keeps genre and mood as unvalidated hints in `earshot describe`. Instruments, rain, birds, and voice are usually right.
+</Accordion>
+
+<Accordion title="Uncertain realness verdicts">
+Designed library sounds ("magic" chimes/celesta, "motion" whooshes) and real electronic music sit between real and synthesized. "Uncertain" means "sounds designed", not necessarily "fake". Bare beeps are among the most-missed types: accuracy 0.71 with the beep family held out.
+</Accordion>
+
+<Accordion title="The launch scorecard">
+The profile comes from 7 films the author picked. It describes modern SaaS and AI launch films with kinetic type and UI demos — not every good film. A cinematic short or a quiet piano piece will break rules that do not apply to it. Build your own profile from films you admire with `earshot profile`.
+</Accordion>
+
+<Accordion title="AudioSet labels on short one-shots">
+Labels on sounds under ~0.5 s are often "unsure" or a near class (Zipper for a swish, Finger snapping for a click). Treat those as neutral; only an outright different class (Speech, Music, Engine) is a red flag.
+</Accordion>
+
+</AccordionGroup>
+
+## What Earshot Cannot Judge At All
+
+<CardGroup cols={2}>
+
+<Card title="Taste and emotion" icon="heart">
+Whether a sound is beautiful, whether music fits a brand, whether a moment feels satisfying. Earshot can describe a sound precisely; it cannot say whether a film feels premium.
+</Card>
+
+<Card title="Provenance and licences" icon="scale-balanced">
+Realness detects synthesis, not licences. A professionally made licensed synthetic UI sound can read "likely code-synthesized." Code-made noise beds that imitate nature or telephone tones can read "real." Earshot never decides whether a file may be used.
+</Card>
+
+<Card title="Speech content" icon="microphone-slash">
+No transcription. Voice is detected; words are not.
+</Card>
+
+<Card title="Anything above 14 kHz" icon="waveform">
+CLAP's front end stops at approximately 14 kHz; the AST tagger at 8 kHz. Use `earshot measure` (bandwidth, bands) for air, hiss, and codec cut-offs.
+</Card>
+
+</CardGroup>
+
+## Goodhart's Law and Forge Saturation
+
+The forge search optimises earshot's own models, and those can be pleased without the sound actually getting better.
+
+After a search, the made sounds pass every model check — including held-out phrases the search never saw — so model checks stop distinguishing made from real. This is model saturation.
+
+<Warning>
+Once saturation is reached, model verdicts are no longer informative about quality. The realness model is especially easy to fool: a modal resonator with a room and a noise floor reads "real."
+</Warning>
+
+The 1/3-octave measurement is model-free and still finds made sounds off the real tonal balance after saturation. Judge a finished forge sound by:
+
+1. Model-free measurements (`earshot measure`)
+2. Spectrograms next to the references (`compare.png` in the forge output)
+3. Robust re-renders (the forge does this by default with `--robust`)
+4. A human blind test
+
+## Launch Scorecard Limits
+
+- The scorecard profile describes the style of 7 reference films, not every good film
+- Not a blind test: some rules changed after the first leave-one-out run
+- Build your own profile from films you admire: `earshot profile REFS... -o p.json`
+
+## Fit Limits
+
+`earshot fit` translates a recording into code, but the result is not a perfect copy:
+
+- Onsets, tone balance, and noise texture still differ measurably from the recording
+- Risers, zips, and long designed sounds are untested
+- Selection weights were set on the same 12 recordings used for evaluation
+- A fit is a derivative of its recording — keep the source's licence with the recipe
+
+## Performance Limits
+
+| Scenario | Notes |
+|---|---|
+| CLI cold start | ~20–40 s per call on a busy laptop (model load) even for a cached file |
+| `earshot sfx`, `earshot kit`, `earshot measure` | No models loaded — fast |
+| `earshot timeline`, `earshot sheet`, `earshot critique` | ~1.5 min per 60–90 s film on a laptop CPU |
+| Repeated calls | Use the MCP server (`earshot mcp`) or a Python script (`from earshot import api`) — models load once and stay warm |
+
+<Tip>
+For agent workflows that make more than a few earshot calls, always use the MCP server or the Python API. Every CLI call is a fresh process that pays the full model load time before answering.
+</Tip>
+
+## Other Engineering Limits
+
+- **Cache staleness**: caches are keyed on path, size, modification time, and 16 sampled 4 KB blocks. A re-render that differs only between those blocks and keeps the old size and timestamp would still read a stale cache. Use `timeline --fresh` or `touch` the file when in doubt.
+- **Domain coverage**: the models were evaluated on one sound library (Freesound/Mixkit picks for one film), 7 launch films, and three synthesis code bases. Orchestral sessions, field recordings in other climates, and other synth engines are untested.
+- **The optional Gemini critique** has not been validated against real answers and requires the user's API key and explicit consent to upload audio.
+- **Cut detection** marks big visual changes (a blinking cursor counts); slow crossfades are missed.
+- **A code-made layer hidden under a louder real mix** is usually missed. Judge source files and stems, not only the final mix.

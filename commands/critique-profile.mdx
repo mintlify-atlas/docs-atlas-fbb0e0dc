@@ -1,0 +1,177 @@
+---
+title: "Score a Soundtrack Against Reference Films with critique"
+sidebarTitle: "critique / profile"
+description: "Run earshot critique to score a soundtrack's sound against a profile of professional launch films, with timestamped fixes. Build custom profiles with earshot profile."
+---
+
+`earshot critique` measures a film or soundtrack against a profile of professional references and produces a scorecard: 23 metrics across loudness, loudness arc, ending, music presence, onset and hit density, sound on cuts, spectrum, stereo width, and realness — each with a status (ok / low / high / n.a.), the reference range, the reference median, and concrete timestamped fixes for every out-of-range result. `earshot profile` lets you build your own reference profile from films you choose, so the ranges describe your target style rather than the 7 bundled films.
+
+---
+
+## earshot critique
+
+`critique` runs `earshot timeline` on the soundtrack, measures every metric in the scorecard, compares each one against the profile's reference ranges, and prints a verdict with an ordered fix list.
+
+### Usage
+
+```bash
+earshot critique FILE [--video V] [--profile P] [OPTIONS]
+```
+
+<ParamField path="FILE" type="string" required>
+  The soundtrack or video file to score. If a video, its own audio track is used. If a separate audio file, pass the picture with `--video`.
+</ParamField>
+
+<ParamField path="--video V" type="string">
+  The video the soundtrack is for (picture cuts, visual events). Skip if `FILE` is already the video.
+</ParamField>
+
+<ParamField path="--profile P" type="string">
+  Profile JSON built with `earshot profile`. Defaults to the bundled 7 professional launch films.
+</ParamField>
+
+<ParamField path="--fast" type="boolean">
+  Skip the AudioSet (music/speech presence) and realness passes. Produces a partial verdict — use only for quick iteration, never before shipping.
+</ParamField>
+
+### Example output
+
+```bash
+earshot critique film.mp4
+```
+
+```text
+earshot critique: film.mp4 (62.3 s) vs 7 reference films (bundled launch films)
+VERDICT: close - 21 of 23 scored metrics in range (weighted 88%), 0 critical and 2 major issues.
+FIX FIRST (most important first):
+  1. [major] nothing reaches body level until 0:01.01 (before that the sound sits around -38 LUFS,
+     26 LU under the body; refs 0.0-0.3 s): raise the opening or start the music at 0:00
+  2. [major] the loudest 3 s (around 0:32, -9.2 LUFS) stand 9.1 LU above the integrated level
+     (refs 5.0-8.0 LU): the rest of the film plays quiet next to it; lift the body or tame that peak
+SCORECARD                              value          ok range                  ref median  status
+  loudness  integrated LUFS         -12.3 LUFS   -16.0 .. -9.0 (web)         -13.1 LUFS  ok
+  loudness  LRA                       7.2 LU      5.0 .. 12.0                   8.4 LU   ok
+  ...
+```
+
+### Metrics scored
+
+Metrics are grouped by weight:
+
+<Accordion title="Critical (weight 3)">
+  - **integrated LUFS** — loudness against web delivery practice (-16 to -9 LUFS; YouTube turns masters above -14 LUFS down)
+  - **realness (p_real)** — the reference films use real recordings and produced music; code-synthesized sound reads as cheap next to them
+  - **music presence fraction** — the references are music-led; a track that carries energy through the whole film
+</Accordion>
+
+<Accordion title="Major (weight 2)">
+  - **true peak** — a master above -1 dBTP clips when encoded to AAC/MP3
+  - **sound on cuts** — a visual cut with no new audio onset within ±100 ms feels dead
+  - **LRA** — loudness range; launch films keep the body consistently strong
+  - **crest** — how far the loudest 3 s stick out above average level
+  - **first sound** — silence at the start loses autoplay viewers
+  - **end silence** — dead air after the sound stops makes the ending feel unfinished
+  - **max gap** — a silent hole mid-film reads as a mistake
+  - **final level** — the logo/end-card moment should land at body level or above
+  - **onset rate** — rhythmic activity; too sparse feels empty, too dense feels cluttered
+  - **hit rate** — salient hits mark the key moments; without them nothing lands
+</Accordion>
+
+<Accordion title="Minor (weight 1)">
+  Intro level, end level, fade length, and six 1/3-octave spectral balance metrics (sub, low, low-mid, mid, presence, air), plus stereo width.
+</Accordion>
+
+<Accordion title="Info (not scored)">
+  Voice share, tempo, peak position, tail length, stop-downs per minute, cut rate, cut–hit fraction, cut frame sync, cuts on beat, brightness, L/R correlation. Shown for context but do not affect the score.
+</Accordion>
+
+The verdict weighs: critical × 3, major × 2, minor × 1. A critical rule missed by ≤ 2 tolerances counts as major.
+
+| Verdict | Condition |
+|---|---|
+| **launch-grade** | Score ≥ 90% and no critical issue |
+| **close** | Score ≥ 75% and no critical issue |
+| **needs work** | Score ≥ 50% |
+| **not launch-grade** | Score < 50% |
+
+### Python API
+
+```python
+from earshot import api
+
+result = api.critique('film.mp4')
+# result['verdict']          — 'launch-grade' | 'close' | 'needs work' | 'not launch-grade'
+# result['score']            — weighted fraction in-range (0–1)
+# result['in_range']         — count of scored metrics in range
+# result['scored']           — total scored metrics
+# result['critical_issues']  — count of critical misses
+# result['major_issues']     — count of major misses
+# result['actions']          — [{weight, metric, action}] sorted by severity
+# result['tips']             — craft suggestions not captured in the scored ranges
+# result['metrics']          — full scorecard rows
+# result['text']             — the formatted text output
+```
+
+---
+
+## earshot profile
+
+`profile` measures a set of your own reference films and writes their metric statistics (median, p10–p90, min–max) as a JSON profile that `earshot critique --profile` can use. The profile describes the style of the films you give it — if you want the scorecard to reflect cinematic short films, corporate explainers, or game trailers, build the profile from those.
+
+### Usage
+
+```bash
+earshot profile REFS... -o p.json [OPTIONS]
+```
+
+<ParamField path="REFS" type="string[]" required>
+  Reference videos, soundtracks, or folders. At least 2 files are needed.
+</ParamField>
+
+<ParamField path="-o / --out FILE" type="string">
+  Write the profile JSON to this path. Also accepted as `--out`.
+</ParamField>
+
+<ParamField path="--styles JSON" type="string">
+  Style descriptions for context — a JSON list in file order, or a `{basename: description}` object.
+</ParamField>
+
+<ParamField path="--no-ast" type="boolean">
+  Skip the AudioSet pass (no music/speech presence metrics; faster).
+</ParamField>
+
+### Example
+
+```bash
+earshot profile film1.mp4 film2.mp4 film3.mp4 -o myprofile.json
+earshot critique new_film.mp4 --profile myprofile.json
+```
+
+### Python API
+
+```python
+from earshot import api
+
+profile = api.profile(['film1.mp4', 'film2.mp4', 'film3.mp4'], out='myprofile.json')
+# profile['n']        — number of reference films
+# profile['metrics']  — per-metric statistics (median, p10, p90, min, max)
+# profile['films']    — per-film measurement records
+```
+
+---
+
+## The bundled profile
+
+The default profile ships with earshot and covers 7 professional product launch films (modern SaaS / AI launch films with kinetic type and UI demos). Its leave-one-out performance: each reference film scored against a profile of the other six lands in range on **86%** of metrics (the no-overfit baseline for min-max ranges of six is ~71%). When `critique` detects that the input file is one of the 7 reference films (same duration and measurements), it automatically scores it leave-one-out against the other six.
+
+<Warning>
+  **The profile describes a style, not every good film.** A cinematic short, a quiet piano piece, or a news package will break rules that do not apply to it. Build your own profile from films you admire whenever the target style differs from modern product launch videos.
+</Warning>
+
+## Common flags
+
+| Flag | Description |
+|---|---|
+| `--json` | Print the full result as JSON |
+| `--out FILE` | Also write the JSON result to this file |
+| `--threads N` | Torch CPU threads |

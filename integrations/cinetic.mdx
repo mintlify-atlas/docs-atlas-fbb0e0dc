@@ -1,0 +1,147 @@
+---
+title: "Integrate Earshot with Cinetic Film Pipelines"
+sidebarTitle: "Cinetic"
+description: "Learn how Earshot's sound kit engine and listening tools plug into Cinetic's code-made film pipeline to supply, verify, and critique a film's soundtrack."
+---
+
+Cinetic is a Claude Code skill (`~/.claude/skills/cinetic`) that directs and renders launch films entirely from code. It handles timing, typing plans, levels, ducking, arc, mastering, reporting, and stems. What it does not do natively is hear. Earshot plugs in at two points in the Cinetic pipeline: it supplies the voices (the actual audio for every cue event) through an earshot sound kit, and it gives Cinetic's review loop ears through the `timeline`, `sheet`, `critique`, and `realness` commands.
+
+Since Cinetic 1.1, the earshot sound kit is the default audio engine when earshot is installed. An alternative route — a real-recordings soundtrack built with `skills/real-sound` — is also described below.
+
+## The Two Integration Routes
+
+<CardGroup cols={2}>
+  <Card title="Earshot Sound Kit" icon="music">
+    **Default since Cinetic 1.1.** Forge sounds rendered from earshot's bank of 201 effects. Pure DSP — no models, no network, seconds per film once cached. Cinetic's conductor handles all timing; earshot supplies the voices.
+  </Card>
+  <Card title="Real-Recordings Soundtrack" icon="record-vinyl">
+    **Via `skills/real-sound`.** Licensed recordings sourced, trimmed, and verified by earshot. The same mixer and review loop, but every sound is a real recording. See the [Agent Skills](/integrations/agent-skills) page for the full process.
+  </Card>
+</CardGroup>
+
+## The Kit Pipeline
+
+When the kit engine is active, the data flows through the pipeline like this:
+
+```text
+src/sync.ts
+  --export-cues-->
+    out/cues.json ─────────────────────────────────────────────────┐
+                                                                    │
+audio/score.json                                                    │
+  "sfx": {"engine": "auto", "kit": "audio/kit.json"} ─────────────┤
+                                                                    ▼
+audio/kit.json                                            score.py → master.py
+  --scripts/audio/kit.py-->                                         │
+    earshot kit render                                              ▼
+      --> audio/kit/*.wav + kit.lock.json ──────────────> soundtrack.wav
+```
+
+Cinetic keeps the conductor. Earshot supplies the voices. A take that fails the sfx audit is re-rolled on a new seed before it ever reaches the mixer.
+
+## Kit Setup: Step by Step
+
+<Steps>
+  <Step title="Initialise the kit">
+    Start from one of the three presets. `calm` is the default for text-led films; `crisp` suits energetic product films; `minimal` is for designed effects-only work.
+
+    ```bash
+    earshot kit init --preset calm -o audio/kit.json
+    ```
+
+    `audio/kit.json` maps each cue kind (tick, tock, hit, whoosh, key, bell, text …) to one bank sound. The `note` field in each role says why that sound was chosen. Edit the file to swap a member, tune the lockup hit to the film's root key, or set custom `dur`/`apex` knobs.
+  </Step>
+  <Step title="The bridge — kit.py finds and runs earshot">
+    Cinetic's `scripts/audio/kit.py` locates earshot automatically: it looks for earshot importable in Cinetic's Python environment, falls back to `sfx.python` in `score.json`, then `EARSHOT_PYTHON`, then `earshot` on PATH. It runs `earshot kit render audio/kit.json --out audio/kit` in one process. The result is cached — an unchanged kit re-renders nothing.
+
+    ```bash
+    earshot kit render audio/kit.json --out audio/kit
+    # writes audio/kit/*.wav and audio/kit/kit.lock.json
+    ```
+
+    The `kit.lock.json` contains measured onset, peak, and end for every take. The mixer uses these sync points to place each take precisely on its cue frame.
+  </Step>
+  <Step title="Placement — score.py reads the lock">
+    `score.py` plays one take per event, placed by the sync point the lock measured for the role's `align` mode:
+
+    - **onset** — the take's attack lands on the cue frame (hits, ticks, keys, clicks, snaps)
+    - **peak** — the loudest 5 ms lands on the cue frame (whooshes, aimed at their picture apex)
+    - **end** — the take ends on the cue frame (risers, swells, ending on the hit)
+
+    Typing cycles through the available takes. A cue whose role is `null` is skipped with a report line. `level_db` and the event weight set each take's level in the mix.
+  </Step>
+  <Step title="Fallback — the build never fails without earshot">
+    If earshot cannot be found or fails, Cinetic falls back gracefully: earshot render → vendored `audio/kit/` takes (from a previous render) → Cinetic's own synth voices, with a loud warning. The film build always completes; only the audio quality degrades.
+  </Step>
+  <Step title="Listening — earshot in the review loop">
+    Cinetic's `scripts/audio/listen.py` runs all three earshot listening commands in one process and writes `out/qa/listen.json`:
+
+    ```bash
+    python -m earshot timeline out/preview.mp4 --cues out/qa/cues_sounded.json
+    python -m earshot sheet out/audio/soundtrack.wav -o out/qa/sound_sheet.png \
+        --video out/preview.mp4 --cues out/qa/cues_sounded.json
+    python -m earshot critique out/audio/soundtrack.wav --video out/preview.mp4
+    ```
+  </Step>
+  <Step title="Lockup audit — catch artifacts before render">
+    Before every film render, `earshot kit check` inspects the hit role for double attacks or a build before the hit, and warns on any role whose pitch climbs more than 4 semitones (the rising "synth whip"). `score.py`'s stack guard also warns when a second designed effect lands within 3 frames of the lockup or payoff.
+
+    ```bash
+    earshot kit check audio/kit.json --out audio/kit
+    ```
+  </Step>
+</Steps>
+
+## Cinetic Cue Kinds → Kit Roles
+
+Every cue kind that Cinetic emits maps to a kit role. The `align` column says which measured sync point the mixer uses to place the take on the cue frame.
+
+| Cinetic cue (kind, variant) | Kit role | Align |
+|---|---|---|
+| `tick` / `tick crisp` | `tick` / `tick.crisp` | onset |
+| `tock` | `tock` | onset |
+| `hit` | `hit` | onset |
+| `land` / `land light` | `land` / `land.light` | onset |
+| `pop` | `pop` | onset |
+| `whoosh` (short move) | `whoosh.short` | peak |
+| `whoosh` (long move) | `whoosh.long` | peak |
+| `suck` | `suck` (off in every preset) | end |
+| `riser` | `riser` (off in every preset) | end |
+| `swell` | `swell` (off in every preset) | end |
+| `drop` | `drop` | onset |
+| `key` / `key space` / `key return` | `key` / `key.space` / `key.return` | onset |
+| `click` / `click confirm` | `click` / `click.confirm` | onset |
+| `snap` | `snap` | onset |
+| `bell` (motif notes, progress steps) | `bell` (one take per pitch) | onset |
+| text fragment resolving | `text` | onset |
+
+<Note>
+Riser, swell, and suck are intentionally off in every preset. A reveal resolves on one clean element; the lockup is one hit. To enable them for a specific film, set their role's `sound` in `audio/kit.json` and re-render the kit.
+</Note>
+
+## Earshot in the Cinetic Review Loop
+
+Cinetic's self-critique loop (Step 7) runs: render → measure → sheets → critic lenses → verify → fix. Earshot adds hearing to the measure and lens steps. The table below shows exactly where each earshot command slots in.
+
+| Cinetic step | Earshot addition | What it gives the critics |
+|---|---|---|
+| Step 5 gate (after soundtrack written) | `qa.py --layers --stems out/stems` | Clicks and cut tails with the guilty sample, masked events, harsh 2–6 kHz peaks, chopped music splices, sync per event, partial coverage, loudness and LRA |
+| Step 7 measure | `earshot timeline out/preview.mp4 --cues out/qa/cues_sounded.json` | Second-by-second listening transcript: events with tags, sections, loudness curve, beat grid, sound-to-cut and sound-to-cue offsets |
+| Step 7 measure | `earshot sheet out/audio/soundtrack.wav -o out/qa/sound_sheet.png --video out/preview.mp4 --cues out/qa/cues_sounded.json` | One PNG — frames, sections, tagged events, spectrogram, loudness, cue sync — that the director and sound lenses look at next to the contact sheets |
+| Step 7 measure | `earshot critique out/audio/soundtrack.wav --video out/preview.mp4` | Scorecard against the profile of professional launch films: metric, value, reference range, what to do |
+| av-audit | `av-audit.py out/preview.mp4 --cues out/qa/cues_sounded.json --stems out/stems` | Cinetic's onset/sync audit on the real soundtrack; `cues_sounded.json` lists only events that received a sound, so deliberate silences are not counted as misses |
+| Sound-sync lens | Hand the lens `qa.json`, the earshot transcript, sheet, and scorecard with `av.json` | The lens can name the exact rule or sample to change |
+| Verifier | `earshot match` on the placed sample, the transcript at that time | Fewer false P1s from reading code alone |
+| Synthesized score check | `earshot realness public/audio/soundtrack.wav` | Per-4 s window: where the synthesized score reads as code-made — useful when the brief asks for recorded sound |
+
+## A Note on the Real-Recordings Route
+
+For films where the brief asks for recorded sound, use `skills/real-sound` instead of the kit engine. The process is described in detail on the [Agent Skills](/integrations/agent-skills) page. Both routes use the same earshot listening commands in the review loop; the difference is in how the soundtrack is built.
+
+<Note>
+Cinetic is a separate skill, not included in earshot. It has its own documentation. The integration described here covers only the earshot side of the interface: the kit schema, the CLI flags, the lock format, and the listening commands. For Cinetic's side — timing, typing plans, arc, mastering, the critic lenses — refer to Cinetic's own docs.
+</Note>
+
+<Tip>
+Run `earshot kit check` and `earshot sfx check` before every film render to catch artifacts early. Catching a double attack or a rising pitch on a 0.3-second click is much faster than debugging a subtle problem in the finished film.
+</Tip>

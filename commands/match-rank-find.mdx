@@ -1,0 +1,196 @@
+---
+title: "Match, Rank, and Find Sounds with Text Queries"
+sidebarTitle: "match / rank / find"
+description: "Check how well a sound matches a description, rank many candidates by query, or locate the best moments inside a long recording."
+---
+
+Three commands let you bring a text description and measure it against audio: `match` gives a calibrated verdict for one file, `rank` sorts many candidate files by how well they fit a description, and `find` returns precise start/end timestamps for the best moments inside a long recording. All three use the same calibrated CLAP vocabulary under the hood, so their z-scores are directly comparable.
+
+---
+
+## earshot match
+
+`match` tells you how well a description fits a specific sound. It returns a calibrated z-score, a verdict band (strong / plausible / weak / no match), the query's percentile rank among all vocabulary descriptions for that file, and optionally a forced-choice probability against alternative descriptions.
+
+### Usage
+
+```bash
+earshot match FILE QUERY [--alts ALT...] [OPTIONS]
+```
+
+<ParamField path="FILE" type="string" required>
+  Audio or video file to score.
+</ParamField>
+
+<ParamField path="QUERY" type="string" required>
+  One or more text descriptions to score against the file. With multiple queries and no `--alts`, the queries compete with each other.
+</ParamField>
+
+<ParamField path="--alts" type="string[]">
+  Alternative descriptions the sound must NOT match — used as confusions in a forced-choice softmax (`p_vs_alts`). Only as meaningful as the alternatives you provide. Without `--alts`, no forced-choice probability is computed.
+</ParamField>
+
+### Example
+
+```bash
+earshot match key.ogg "a deep thocky mechanical keyboard press" \
+  --alts "a clicky blue switch keyboard" "a mouse click"
+```
+
+```text
+-> strong (z +3.7; would rank #2 among 322 vocabulary descriptions) ...
+```
+
+The output means the description "a deep thocky mechanical keyboard press" is an extremely good fit for this recording — it lands in the top 2 of all 322 vocabulary terms for this particular sound.
+
+### Verdict bands
+
+Thresholds were chosen on 219 labelled recordings; evidence measured on a separate held-out library of 125 files, nothing tuned on it:
+
+| Verdict | z | Precision (library, ~3% base rate) | Precision (even odds) | Recall at or above |
+|---|---|---|---|---|
+| **strong** | ≥ 3 | 0.98 | 1.00 | 0.51 |
+| **plausible** | 2.5 – 3 | 0.41 | 0.95 | 0.63 |
+| **weak** | 2 – 2.5 | 0.28 | 0.92 | 0.76 |
+| **no match** | < 2 | 0.008 | 0.20 | — |
+
+A "strong" verdict is the right kind of sound 98% of the time in a library search, but the exact variant only 61% of the time (an Enter key for a spacebar counts as wrong in strict scoring). "Weak" is evidence worth a second check, not proof.
+
+### Python API
+
+```python
+from earshot import api
+
+result = api.match(
+    'key.ogg',
+    'a deep thocky mechanical keyboard press',
+    alts=['a clicky blue switch']
+)
+# result['verdict']    — 'strong' | 'plausible' | 'weak' | 'no match'
+# result['z']          — calibrated z-score
+# result['p_vs_alts']  — forced-choice probability vs alternatives
+# result['summary']    — plain-language sentence
+```
+
+---
+
+## earshot rank
+
+`rank` takes a text description and a list of files or folders and returns them sorted from best to worst match. Use it when you have several candidate downloads or renders and need to pick the one that fits a brief.
+
+### Usage
+
+```bash
+earshot rank QUERY PATHS... [OPTIONS]
+```
+
+<ParamField path="QUERY" type="string" required>
+  Text description to match against.
+</ParamField>
+
+<ParamField path="PATHS" type="string[]" required>
+  Files, folders, or globs. All discoverable audio/video files are ranked.
+</ParamField>
+
+<ParamField path="--top N" type="integer">
+  List only the best N results (default: all).
+</ParamField>
+
+### Example
+
+```bash
+earshot rank "a fast whoosh" downloads/whooshes/ --top 5
+```
+
+### Python API
+
+```python
+from earshot import api
+
+ranked = api.rank('a fast whoosh', ['a.wav', 'b.wav', 'c.wav'])
+# returns a list sorted by z-score, highest first
+# each entry: {'path': ..., 'z': ..., 'verdict': ..., 'cosine': ...}
+```
+
+---
+
+## earshot find
+
+`find` locates the best moments inside a long recording — a multi-take pack, a field recording, or a scene — and returns them as precise start/end timestamps. Unlike `rank` (which compares whole files), `find` slices the file into overlapping windows, embeds each one, and picks the non-overlapping top-N.
+
+### Usage
+
+```bash
+earshot find FILE QUERY [--top N] [OPTIONS]
+```
+
+<ParamField path="FILE" type="string" required>
+  Audio or video file to search inside.
+</ParamField>
+
+<ParamField path="QUERY" type="string" required>
+  What you are looking for inside the recording.
+</ParamField>
+
+<ParamField path="--top N" type="integer">
+  Number of non-overlapping segments to return (default `5`).
+</ParamField>
+
+<ParamField path="--win SECONDS" type="float">
+  Window length in seconds (default: `duration/6` clamped to 1–5 s).
+</ParamField>
+
+<ParamField path="--hop SECONDS" type="float">
+  Hop between windows in seconds (default: `win/2`).
+</ParamField>
+
+<ParamField path="--kind" type="string">
+  `event` — onset-based strokes only (hits, clicks, steps). `texture` — sliding windows only (beds, ambiences). `auto` — reads the query and scores both (default).
+</ParamField>
+
+<ParamField path="--start SECONDS" type="float">
+  Search from this offset only.
+</ParamField>
+
+<ParamField path="--end SECONDS" type="float">
+  Search up to this offset only.
+</ParamField>
+
+### Example
+
+```bash
+earshot find keys.ogg "a single mechanical key press" --top 4
+```
+
+```text
+0:03.94-0:04.19 (0.24 s stroke, z +4.1 strong); 0:10.60-0:10.86 ...
+```
+
+Each result is a trim (start–end seconds) with its z-score and verdict. On a recording of 17 single key presses, earshot finds 16 usable trims on 16 distinct presses — each starting 5-54 ms before the attack, never after.
+
+### Python API
+
+```python
+from earshot import api
+
+trims = api.find('typing.ogg', 'a single isolated key press')
+# returns a list of dicts: {'start': float, 'end': float, 'z': float, 'verdict': str}
+```
+
+---
+
+## Common flags
+
+All three commands accept:
+
+| Flag | Description |
+|---|---|
+| `--json` | Print the full result as JSON |
+| `--out FILE` | Also write the JSON result to this file |
+| `--threads N` | Torch CPU threads |
+
+---
+
+<Tip>
+  **Use the Python API or MCP server for more than a few calls.** Every CLI invocation is a fresh process that loads the models (~20-40 s). With `from earshot import api` the models load once and stay warm for every subsequent call in the same script. The MCP server does the same for agent sessions that span many files.
+</Tip>

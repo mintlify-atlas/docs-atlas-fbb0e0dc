@@ -1,0 +1,106 @@
+{
+  "projectType": "cli-tool",
+  "projectName": "Earshot",
+  "projectDescription": "A CPU-only audio analysis and sound synthesis toolkit that gives AI coding agents the ability to hear, describe, match, and generate sounds — exposed as a CLI, Python API, and MCP server.",
+  "theme": "luma",
+  "primaryColor": "#6B5CF6",
+  "lightColor": "#EDE9FF",
+  "darkColor": "#2D1B69",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Listening Commands",
+            "pages": [
+              "commands/describe",
+              "commands/match-rank-find",
+              "commands/compare",
+              "commands/realness",
+              "commands/timeline-sheet",
+              "commands/critique-profile",
+              "commands/measure"
+            ]
+          },
+          {
+            "group": "Sound Generation",
+            "pages": [
+              "forge/overview",
+              "forge/forge",
+              "forge/fit",
+              "forge/sfx-kit"
+            ]
+          },
+          {
+            "group": "Integrations",
+            "pages": [
+              "integrations/mcp-server",
+              "integrations/python-api",
+              "integrations/agent-skills",
+              "integrations/cinetic"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "reference/configuration",
+              "reference/gallery",
+              "reference/validation",
+              "reference/limits"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Describe any audio file in natural language with calibrated z-score tags",
+    "Match and rank audio files against text descriptions using CLAP embeddings",
+    "Find best moments inside long recordings with sample-accurate trims",
+    "Detect real recordings vs code-synthesized audio (ROC-AUC 0.92)",
+    "Generate sounds from code using physical synthesis with an evolutionary critic loop (earshot forge)",
+    "Translate recordings into re-renderable code via analysis by synthesis (earshot fit)",
+    "Ship a bank of 201 DSP-rendered sound effects with knob control (earshot sfx / kit)",
+    "Expose all tools as an MCP server for Claude Code and other AI agents",
+    "Full Python API — all commands available as importable functions",
+    "CPU-only — no GPU required, runs locally with no network calls after model download"
+  ],
+  "publicApiSurface": [
+    "earshot describe FILE",
+    "earshot match FILE QUERY [--alts ...]",
+    "earshot rank QUERY PATHS...",
+    "earshot find FILE QUERY",
+    "earshot compare FILE --refs DIR",
+    "earshot ab A B",
+    "earshot realness FILE...",
+    "earshot timeline FILE [--video V] [--cues C]",
+    "earshot sheet FILE -o out.png",
+    "earshot critique FILE [--video V]",
+    "earshot profile REFS... -o p.json",
+    "earshot measure FILE",
+    "earshot forge RECIPE [--refset CAT] [--refs DIR] [--budget N]",
+    "earshot forge --fit FILE -o recipe.py",
+    "earshot sfx list / render ID / check FILE",
+    "earshot kit init / render / check",
+    "earshot gallery DIR -o page.html",
+    "earshot mcp",
+    "earshot doctor [--load] [--fetch]",
+    "from earshot import api",
+    "api.describe / api.match / api.rank / api.find / api.compare / api.ab",
+    "api.realness / api.realness_many / api.timeline / api.sheet",
+    "api.critique / api.profile / api.measure / api.llm_critique / api.doctor",
+    "api.sfx_list / api.sfx_render / api.sfx_check",
+    "api.kit_init / api.kit_render / api.kit_check / api.kit_audition",
+    "from earshot.forge import forge, palette, render_params",
+    "from earshot.forge import bank; bank.render(id, pitch=...)"
+  ]
+}

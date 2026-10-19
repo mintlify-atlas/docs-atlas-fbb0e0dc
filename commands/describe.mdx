@@ -1,0 +1,111 @@
+---
+title: "earshot describe: Natural-Language Audio Tags"
+sidebarTitle: "describe"
+description: "Describe any audio file in natural language using calibrated z-score tags, AudioSet labels, and acoustic measurements — no query required."
+---
+
+`earshot describe` examines an audio file and returns a plain-language summary of what it sounds like — without you needing to guess a query first. It runs CLAP against a calibrated vocabulary, assigns z-scores to every matching term, selects the strongest tags, adds AudioSet classifier labels from a separate model, and appends objective acoustic measurements: peak level, loudness, brightness, bandwidth, attack and decay times. The result is the single most useful paragraph an agent can read about a sound it has never heard.
+
+## Usage
+
+```bash
+earshot describe FILE [OPTIONS]
+```
+
+<ParamField path="FILE" type="string" required>
+  Audio file or video to describe. Supported formats: WAV, OGG, FLAC, MP3, MP4, and anything ffmpeg can decode.
+</ParamField>
+
+### Options
+
+| Flag | Description |
+|---|---|
+| `--start SECONDS` | Describe only from this offset (e.g. a trim from `earshot find`) |
+| `--end SECONDS` | Describe only up to this offset |
+| `--top N` | Tags per category (default `8`) |
+| `--json` | Print the full result as JSON |
+| `--out FILE` | Also write the JSON result to this file |
+| `--threads N` | Torch CPU threads (default `EARSHOT_THREADS` or `min(4, cores/2)`) |
+
+## Example
+
+The following is the actual output for a 0.56 s keyboard enter key recording, taken directly from earshot's README:
+
+```bash
+earshot describe enter.ogg
+```
+
+```text
+0.56 s short transient (attack 3 ms, decays in 190 ms). Sounds most like: a single mechanical keyboard key press
+(z +5.4), a soft key release click (z +3.6), a clicky mechanical keyboard (z +3.2) [clear reading]. peak -0.1 dBFS,
+brightness 1.5 kHz ...
+```
+
+The summary tells you the shape (short transient), the calibrated tag with its z-score, the reading verdict (clear), and the acoustic numbers — everything an agent needs to reason about the file.
+
+## Understanding z-scores and verdicts
+
+Every tag is scored with a calibrated z-score that expresses how far the description stands out among all vocabulary descriptions for this particular sound, after removing per-term bias. A high z-score means the term is genuinely distinctive for this file, not just a popular tag.
+
+| Verdict | z-score | What it means |
+|---|---|---|
+| **clear reading** | ≥ 3 | Very reliable — 98% precision in a library search at ~3% base rate |
+| **plausible reading** | 2.5 – 3 | Strong hint — worth checking, 41% precision at 3% base rate |
+| **weak reading** | 2 – 2.5 | Evidence, not proof — 28% precision at 3% base rate |
+| **tentative** | < 2 | Nothing in the vocabulary stands out clearly |
+
+Half of all true matches reach "strong" (recall 0.51); 76% reach at least "weak". In a library search where ~3% of candidate pairs are true, a "strong" hit is the right kind of sound 98% of the time, but the exact variant only 61% of the time (an Enter key for a spacebar counts as wrong in strict scoring). These numbers come from a held-out library of 125 real recordings, nothing tuned on it.
+
+## What the output contains
+
+<Accordion title="Calibrated vocabulary tags">
+  The top matching terms from earshot's vocabulary, each with a z-score, cosine similarity, and a verdict band. "Other readings" lists the best tags from other categories — the closest alternative interpretations of the sound.
+</Accordion>
+
+<Accordion title="Music / mood hints (unvalidated)">
+  Genre, mood, instrument and voice tags are listed separately as hints. They were never validated: on 45 upbeat library tracks the top mood tag was a dark or sad one 18% of the time. Treat them as clues, not verdicts.
+</Accordion>
+
+<Accordion title="AudioSet labels">
+  Per-class probabilities from the AST tagger (`MIT/ast-finetuned-audioset-10-10-0.4593`), which hears up to 8 kHz. Labels with probability ≥ 0.05 are shown. An outright different class (Speech, Engine, Music when you expect a click) is a meaningful red flag; "unsure" on a short one-shot is normal.
+</Accordion>
+
+<Accordion title="Acoustic measurements">
+  Objective numbers from `earshot measure` (no model): peak dBFS, true peak dBTP, LUFS, brightness Hz, bandwidth Hz, attack ms, decay ms, noise floor, and stereo width. These are meters, not opinions.
+</Accordion>
+
+## Python API
+
+<CodeGroup>
+```python Short form
+import earshot
+result = earshot.describe('whoosh.wav')
+print(result['summary'])
+```
+
+```python Full API namespace
+from earshot import api
+result = api.describe('file.wav')
+# result['summary']   — the plain-language paragraph
+# result['tags']      — calibrated vocabulary tags with z-scores
+# result['hints']     — unvalidated music/mood/voice tags
+# result['audioset']  — AudioSet labels with probabilities
+# result['measurements'] — objective acoustic measurements
+```
+
+```python Trim a region
+from earshot import api
+result = api.describe('multi_take.wav', start=1.2, end=1.6)
+```
+</CodeGroup>
+
+Models load lazily on first call and stay warm for the rest of the Python process. For more than a few CLI calls, prefer one Python script or the MCP server — each CLI invocation is a fresh process and pays the ~20-40 s model-load cost.
+
+<Warning>
+  **What earshot cannot judge from `describe`**
+
+  - **Taste and emotion**: it can say "a strong match for a deep thocky key press, 3 ms attack"; it cannot say the sound feels premium.
+  - **Above 14 kHz**: CLAP's front end stops at 14 kHz; the AudioSet tagger at 8 kHz. Use `earshot measure` (bandwidth, bands) for air, hiss and codec cut-offs.
+  - **Speech content**: voice is detected, words are not.
+  - **Busy mixes**: tags of events buried under music are right roughly one time in four. Use `describe` on isolated source files and stems, not the final mix.
+</Warning>

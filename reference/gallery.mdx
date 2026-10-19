@@ -1,0 +1,162 @@
+---
+title: "Build a Listening Gallery of Forge Outputs"
+sidebarTitle: "gallery"
+description: "earshot gallery renders forge output folders into a self-contained static HTML page with audio players, spectrograms, and benchmark numbers."
+---
+
+`earshot gallery` turns a folder of forge outputs into a single static HTML page for listening and comparing results. The page needs no server, no network connection, and no external scripts — everything is inline CSS with a short inline script. One card appears per forge category, grouped by family (whooshes, sweeps, impacts, UI, tonal, digital). Each sound on a card gets an audio player, a spectrogram thumbnail (log frequency, one shared time span per card so lengths compare), duration, peak level, momentary-max LUFS, the forge critic's total and pass verdict, and a collapsible table of recipe parameters for every variant.
+
+## Basic Usage
+
+Point `earshot gallery` at a forge output tree — a folder of `<category>/final/*.wav` directories — and give it an output path:
+
+```bash
+earshot gallery out/forge_v2 -o out/gallery/gallery.html
+```
+
+Spectrogram thumbnails are written to `<stem>_files/` next to the HTML file and cached by file content, so rebuilding only regenerates thumbnails that changed.
+
+## Adding Benchmark Numbers
+
+Pass a results JSON from `eval/forge/bench.py` with `--results` to add held-out benchmark numbers alongside each sound:
+
+```bash
+earshot gallery out/forge_v2 -o g.html --results eval/forge/results_v2r6.json
+```
+
+<Note>
+Benchmark numbers are shown only for files the benchmark actually measured. A file that is newer than the results JSON, or whose length or peak differ from the benchmark entry, gets no numbers. Renamed files are matched by length and peak; every such case is listed in the page's notes.
+</Note>
+
+## Adding Reference A/B Rows
+
+Pass `--refs forge` to add a row under each category's card showing the nearest forge-side reference recording for each made sound:
+
+```bash
+earshot gallery out/forge_v2 -o g.html --refs forge
+```
+
+<Warning>
+`--refs bench` is refused — bench references are held out and never appear on a page. Forge references are licensed recordings; keep any page that plays them private.
+</Warning>
+
+## All CLI Examples
+
+<CodeGroup>
+
+```bash Basic gallery
+earshot gallery out/forge_v2 -o out/gallery/gallery.html
+```
+
+```bash With benchmark numbers
+earshot gallery out/forge_v2 -o g.html --results eval/forge/results_v2r6.json
+```
+
+```bash With forge reference A/B rows
+earshot gallery out/forge_v2 -o g.html --refs forge
+```
+
+```bash Before/after comparison
+earshot gallery --compare "r2:out/forge_v2/*/final_r2" "r3:out/forge_v2/*/final" \
+  -o compare.html --results r2:eval/forge/results_v2r2.json
+```
+
+```bash Portable embedded page (lossless FLAC)
+earshot gallery out/forge_v2 -o portable.html --embed
+```
+
+```bash Shareable compressed page (~9 MB for 183 sounds)
+earshot gallery out/forge_v2 -o share.html --embed-compressed
+```
+
+```bash Version comparison with folder alias
+earshot gallery --compare "v1:old/*/final" "v2:out/forge_v2/*/final" \
+  --alias keypress=typing_key -o v1_v2.html
+```
+
+</CodeGroup>
+
+## Key Flags
+
+<AccordionGroup>
+
+<Accordion title="--results [LABEL:]JSON">
+Add held-out benchmark numbers to the page. With `--compare`, each results JSON must be labelled to match a version: `r2:eval/forge/results_v2r2.json`. A version without its own results borrows numbers only for files still at the exact path the benchmark measured and unchanged since.
+</Accordion>
+
+<Accordion title="--refs forge|DIR">
+Add an A/B row under the newest version showing each sound's nearest forge reference recording. Pass `forge` to use the registry's forge split, or a `DIR/<category>/[forge/]*.wav` folder. Bench references are always refused.
+</Accordion>
+
+<Accordion title="--compare LABEL:GLOB">
+Show multiple versions as rows, one per category card, variant under variant. Quote the glob patterns so the shell does not expand them. Files identical to an earlier version are marked `= r2` rather than duplicated.
+
+```bash
+earshot gallery --compare "r2:out/forge_v2/*/final_r2" "r3:out/forge_v2/*/final" -o compare.html
+```
+</Accordion>
+
+<Accordion title="--embed and --embed-compressed">
+`--embed` encodes audio as FLAC (lossless, about half the WAV size) and embeds audio and spectrogram images as base64 inside the HTML file — one portable file with no links to the filesystem.
+
+`--embed-compressed` makes one small self-contained file suitable for sharing or opening on a phone: audio is encoded by ffmpeg to MP3 192 kbps by default, thumbnails become JPEG. 183 forge sounds come to about 9 MB. Every number on the page (length, peak, LUFS, spectrogram) is still measured on the original WAVs, not the previews.
+
+```bash
+earshot gallery out/forge_v2 -o share.html --embed-compressed
+earshot gallery out/forge_v2 -o share.html --embed-compressed --embed-codec opus --kbps 96
+```
+</Accordion>
+
+<Accordion title="--embed-codec and --kbps">
+Choose the codec for `--embed-compressed` audio previews:
+
+- `mp3` (default) — plays in every current browser at 192 kbps
+- `opus` — Ogg Opus, smaller per quality level, default 128 kbps
+- `vorbis` — Ogg Vorbis, default 160 kbps
+
+Use `--kbps N` to override the default bitrate for the chosen codec.
+</Accordion>
+
+<Accordion title="--alias OLD=NEW">
+Put an older recipe's output folder under another category's card. Useful when a category was renamed between versions:
+
+```bash
+earshot gallery --compare "v1:old/*/final" "v2:out/forge_v2/*/final" --alias keypress=typing_key -o v1_v2.html
+```
+</Accordion>
+
+</AccordionGroup>
+
+## Match Loudness Switch
+
+The page includes a "match loudness" toggle that is on by default. When enabled, any player whose momentary-max LUFS is louder than the page's 10th-percentile loudness level has its volume turned down to match — so a riser does not blast after a quiet click. This changes the player volume only; the files themselves are never touched.
+
+## Security Notes
+
+<CardGroup cols={2}>
+
+<Card title="Bench references" icon="lock">
+`--refs bench` is refused outright. Benchmark reference recordings are held out from the forge search and never appear on a generated page.
+</Card>
+
+<Card title="Forge references" icon="shield-halved">
+Forge references are licensed third-party recordings. Keep any page that plays them private. Build without `--refs` to produce a page safe to share.
+</Card>
+
+</CardGroup>
+
+## Python API
+
+```python
+from earshot.gallery import gallery
+
+result = gallery(
+    "out/forge_v2",
+    "out/gallery/gallery.html",
+    results=["eval/forge/results_v2r6.json"],
+    refs="forge",
+)
+print(result["text"])
+```
+
+The `gallery()` function returns a dict with `html`, `assets`, `versions`, `categories`, `sounds`, `refs`, `images`, `embedded`, `codec`, `size_mb`, and `warnings`.

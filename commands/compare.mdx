@@ -1,0 +1,165 @@
+---
+title: "Compare Sounds Against References with earshot"
+sidebarTitle: "compare / ab"
+description: "Find the nearest reference recordings to a sound, measure typicality, and A/B two sounds or trims with differences expressed in words."
+---
+
+When you need to know whether a sound fits a category of references — or which of two candidates is closer to a description and a reference set — `earshot compare` and `earshot ab` give you calibrated evidence in plain language. `compare` measures how close a file is to a folder of reference recordings and whether it fits within their spread. `ab` takes two sounds and tells you which is closer to a query and/or to references, then describes how B differs from A in measurable terms.
+
+---
+
+## earshot compare
+
+`compare` embeds your candidate file and every file in a reference directory using CLAP, computes cosine similarity, returns the k nearest references by name, and measures typicality — how close the file is to its k nearest references compared with how close each reference is to its own k nearest neighbours in the set (reported as a z-score and percentile).
+
+Beyond embedding similarity, `compare` also computes feature-level differences: robust z-scores for loudness, brightness, attack, decay, low-end energy, noise floor, stereo width, and bandwidth against the references' median and spread, expressed in words for any measurement that falls outside the set.
+
+### Usage
+
+```bash
+earshot compare FILE --refs DIR [OPTIONS]
+```
+
+<ParamField path="FILE" type="string" required>
+  The audio file to compare (candidate, new render, or downloaded sound).
+</ParamField>
+
+<ParamField path="--refs" type="string[]" required>
+  Reference files or folders. At least 2 readable files are required.
+</ParamField>
+
+<ParamField path="-k N" type="integer">
+  How many nearest references to list (default `5`).
+</ParamField>
+
+<ParamField path="--start SECONDS" type="float">
+  Judge only from this offset — e.g. a trim returned by `earshot find`.
+</ParamField>
+
+<ParamField path="--end SECONDS" type="float">
+  Judge only up to this offset.
+</ParamField>
+
+### Example
+
+```bash
+earshot compare mysound.wav --refs ./reference_dir -k 3
+```
+
+```text
+mysound.wav vs 12 references. Nearest: click_a.wav (cos 0.91), click_b.wav (cos 0.88), key_c.wav (cos 0.85).
+Typicality z +0.4 (62nd percentile of how close the references are to each other): fits the set.
+Every measurement is within the references' spread.
+```
+
+The typicality verdict:
+
+| Typicality z | Verdict |
+|---|---|
+| ≥ −1 | Fits the set |
+| −2 to −1 | Somewhat unusual for the set |
+| < −2 | An outlier: unlike the references |
+
+### Python API
+
+```python
+from earshot import api
+
+result = api.compare('mysound.wav', refs='./reference_dir')
+# result['summary']      — plain-language paragraph
+# result['nearest']      — list of {name, path, cosine}
+# result['typicality']   — {mean_cos_knn, z, percentile, verdict}
+# result['features']     — per-measurement robust z-scores vs references
+```
+
+<Note>
+  Trim flags (`--start` / `--end`) are passed through to both the CLAP embedding and the acoustic measurements, so a trim found by `earshot find` can be compared alone, without the silence and other takes around it.
+</Note>
+
+---
+
+## earshot ab
+
+`ab` places two sounds side by side and answers three questions: which is closer to a description (if you supply `--query`), which is closer to a reference set (if you supply `--refs`), and how B differs from A in measurable terms. Differences are reported only when they are big enough to hear — at least 1.5 dB for loudness, a 1.15× ratio for brightness, a 1.5× ratio for attack or decay time, 3 dB for low-end energy, and so on.
+
+### Usage
+
+```bash
+earshot ab A B [OPTIONS]
+```
+
+<ParamField path="A" type="string" required>
+  Sound A — typically your current version or the original recording.
+</ParamField>
+
+<ParamField path="B" type="string" required>
+  Sound B — the candidate, new render, or alternative. May be the same file as A with different trim offsets.
+</ParamField>
+
+<ParamField path="--query TEXT" type="string">
+  A description both sounds should match. Reports which one is closer (calibrated z of each) and by how much.
+</ParamField>
+
+<ParamField path="--refs DIR" type="string[]">
+  Reference files or folders. Reports typicality z for A and B against the set.
+</ParamField>
+
+<ParamField path="--a-start / --a-end" type="float">
+  Use only this part of file A (seconds). Useful for comparing two trims from `earshot find`.
+</ParamField>
+
+<ParamField path="--b-start / --b-end" type="float">
+  Use only this part of file B (seconds).
+</ParamField>
+
+### Examples
+
+<CodeGroup>
+```bash Compare two files
+earshot ab take1.ogg take2.ogg --query "a deep thocky key press"
+```
+
+```bash A/B two trims from the same file
+earshot ab pack.ogg pack.ogg \
+  --a-start 1.217 --a-end 1.615 \
+  --b-start 7.881 --b-end 8.285
+```
+
+```bash A/B against a reference folder
+earshot ab mine.wav pro.wav --refs refs/launch_whooshes/
+```
+</CodeGroup>
+
+```text
+A = take1.ogg, B = take2.ogg.
+B is slightly closer to 'a deep thocky key press' (z A +2.9, B +3.4).
+CLAP hears them as similar (cosine 0.81).
+B is brighter (brightness 3.2 kHz vs 2.1 kHz) and with a sharper attack (attack 4 ms vs 11 ms).
+```
+
+### Python API
+
+```python
+from earshot import api
+
+result = api.ab('sound_a.wav', 'sound_b.wav')
+# result['summary']       — plain-language comparison
+# result['cosine_ab']     — CLAP cosine between A and B
+# result['differences']   — list of measurement keys where B differs from A
+# result['query']         — z-scores for each if --query was used
+# result['refs']          — typicality z for A and B if --refs was used
+```
+
+---
+
+## Common flags
+
+| Flag | Description |
+|---|---|
+| `--json` | Print the full result as JSON |
+| `--out FILE` | Also write the JSON result to this file |
+| `--threads N` | Torch CPU threads |
+
+<Tip>
+  **Picking between generated candidates?** Run `earshot rank` first to find the top few, then `earshot ab` to understand exactly what separates the finalists. If you have reference recordings, add `--refs` to both calls so the verdict is grounded in measured examples of the target category.
+</Tip>

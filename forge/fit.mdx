@@ -1,0 +1,147 @@
+---
+title: "Translate Recordings to Code with earshot fit"
+sidebarTitle: "fit"
+description: "earshot fit converts any recording into a Python forge recipe module by fitting a synthesis model — then render new takes, variations, and morphs from the code."
+---
+
+`earshot fit` takes a recording and produces code. The method is analysis-by-synthesis: it tries several small synthesis models (ringing modes, tracked partials, a time-varying noise gesture, layered hybrids) and fits each one's parameters until its render matches the recording. Then it writes the best-fitting model as a Python forge recipe module whose `render()` re-creates the sound. The module stores the sound's structure — modes, partials, band envelopes — not its samples. From that structure it can make new takes with fresh noise, variations controlled by knobs (size, damping, pitch, brightness, decay), and morphs between two recordings.
+
+## What fit does internally
+
+Three fitters, each analysis-by-synthesis, each producing a plain-JSON model:
+
+| Fitter | Best for | The model |
+|---|---|---|
+| `modal.py` | Struck and ringing sounds — clicks, taps, key presses, impacts | Per strike: damped sinusoids [Hz, decay, amplitude, phase] via ESPRIT + least squares; contact as fast modes; a sub-20 Hz pulse; band noise envelopes |
+| `sines.py` | Tonal sounds — dings, chimes, pops with a pitch | Tracked partials with frequency and level breakpoints (McAulay-Quatieri / SMS); strike atoms; 1/3-octave residual noise including the recording's floor |
+| `spectral.py` | Noisy sounds — whooshes, swishes, cloth | A time-varying 48-band noise gesture; per-band stereo; flutter/crackle texture statistics; tonal ridges |
+
+The `auto` engine on top measures the recording's character (attack, decay, crest, tonal share, partial persistence, glide, flatness) to order the candidates, fits every candidate, measures each render against the original, and keeps the best. For sounds under one second it tries all six candidates (three fitters plus three hybrids). In a hybrid, each layer keeps only its deterministic part and the next layer is fitted on the residual — so a pop becomes chirp + body + air, and a key press becomes body + air.
+
+## CLI usage
+
+```bash
+# Fit a recording and write a recipe module, its render WAV, a side-by-side spectrogram, and a model JSON
+earshot fit click.wav -o made/click_fit.py --report
+
+# The generated module renders on its own — seed 3 gives take 3
+python made/click_fit.py 3 take3.wav
+
+# Create a morph recipe between two recordings
+earshot fit --morph a.wav b.wav --amount 0.5 -o made/ab_morph.py
+
+# Run the forge critic on the fitted recipe to search for variations
+earshot fit --forge made/click_fit.py --budget 96 --dir made/click_variations
+```
+
+## Flags
+
+| Flag | What it does |
+|---|---|
+| `-o / --output PATH` | Recipe path (`.py`); the WAV, PNG, and model JSON go next to it |
+| `--dir PATH` | Output folder when `-o` is not given (default: current folder) |
+| `--kind auto\|modal\|sines\|spectral\|hybrid` | Force a specific fitter (default `auto`) |
+| `--layers KINDS` | Hybrid layers, e.g. `sines,modal,spectral` (default `modal,spectral`) |
+| `--render PATH` | Resynthesis WAV path (default: next to the recipe) |
+| `--report` | Also measure the render-vs-render floor and CLAP cosine; write `<name>.report.json` |
+| `--clap` | Let CLAP help choose the best fit (loads CLAP, ~50 s) |
+| `--seed N` | Seed for the identity render (default 0) |
+| `--morph A B` | Fit both recordings with one kind and write a morph recipe |
+| `--amount F` | With `--morph`: 0 = A, 1 = B (default 0.5) |
+| `--forge RECIPE_PY` | Search variations of a fitted recipe with the forge critic |
+| `--budget N` | With `--forge`: candidates the critic scores (default 96) |
+| `--dir PATH` | With `--forge`: output folder |
+| `--takes` | Score every candidate on seeds 0, 1, 2 instead of seed 0 alone (better for making takes) |
+
+## Measured accuracy
+
+Validation was run on 12 real recordings — two each of click, typing key, pop, impact, fast whoosh, and notification — none from the benchmark's held-out side.
+
+| Metric | Result |
+|---|---|
+| Median CLAP cosine (recording vs its recipe's render) | **0.945** (minimum 0.881) |
+| `earshot describe` top tag the same for both | **10 of 12** |
+| Blind test: listener could not identify the recording | **12 of 12 trials** (could not tell which clip was real) |
+| Median envelope correlation | 0.98 |
+| Median mel spectral distance | 3.71 dB (against a median model floor of 2.96 dB) |
+| Median tonal balance distance | 2.0 dB |
+
+<Note>
+The blind test used one listener and 12 trials — a small test, not a proof. The renders are close to the recordings but not identical: onsets, tonal balance, and noise texture still differ measurably. The selection weights in `quality.score` were set on the same 12 recordings they were checked on, so this is an in-sample result.
+</Note>
+
+## Variation knobs
+
+The generated recipe's `SPACE` defines knobs you can adjust directly or search with the forge critic. Common knobs across fitters:
+
+- **size** — scales the overall body (modal: mode frequencies down, decays longer; sines: partial spacing)
+- **damping** — how fast the modes or partials decay
+- **pitch** — transposes all tonal content
+- **brightness** — shifts the balance of energy between high and low modes
+- **decay** — overall amplitude envelope time constant
+- **width** — stereo width (spectral fits)
+- **morph** — 0.2–0.8 in morph recipes, blending between two source structures
+
+To search the knob space with the forge critic:
+
+```bash
+earshot fit --forge made/click_fit.py --budget 96 --dir made/click_variations
+```
+
+Or from Python:
+
+```python
+from earshot.forge import fit, forge as run_forge
+from earshot.forge.fit import codegen
+
+rec = codegen.load_recipe('made/click_fit.py')
+report = run_forge(rec, budget=96, out='made/click_variations', robust=3, prescreen=3*16, shortlist=2)
+```
+
+## Python API
+
+```python
+from earshot.forge import fit
+from earshot.forge.fit.quality import quality
+
+# Fit a recording
+m = fit.fit('click.wav')                       # kind='auto' | 'modal' | 'sines' | 'spectral' | 'hybrid'
+
+# Render it — seeds change noise/jitter, not structure
+y = fit.render(m, seed=0, vary=0.3)            # vary > 0 enables take mode (rings out, no DC offset)
+
+# Measure quality against the original
+q = quality('click.wav', y, clap=True)
+
+# Write a recipe module
+src = fit.to_recipe(m, name='click_fit', source='click.wav')
+
+# Morph two fits of the same kind
+m_a = fit.fit('a.wav')
+m_b = fit.fit('b.wav')
+mm  = fit.morph(m_a, m_b, 0.5)                # the morph point (0 = A, 1 = B)
+```
+
+## Licence note
+
+<Warning>
+A fit is a derivative of its recording — the parameters are measured from it. Keep the source recording's attribution and licence with the generated recipe. The recipe's docstring names the source. For anything you intend to ship, prefer CC0 recordings. A morph across several sources is less derivative of any one, but keep every source's attribution anyway.
+</Warning>
+
+## Honest limits
+
+<Accordion title="What fit cannot match precisely">
+
+**Onsets.** Even with the attack-matching post stage, onset sharpness differs by 0.6–1.5 octaves on 6 of 12 validation recordings. The metric is also noisy on stochastic renders: different seeds of one model ranged from 23–140 dB/ms on a key press.
+
+**Noise models.** A noise band is spectrally flat within its band, which fills spectral valleys. The thock key's tonal balance sits 4.4 dB off even after the EQ correction. Modal key fits have high floors (2.5–3.3 dB): their noise varies take-to-take more than the recording suggests.
+
+**Tonal balance.** The static EQ post stage corrects the average balance. Pitch knobs shift the tonal content but the EQ stays fixed, so the balance can drift on large pitch changes.
+
+**Untested inputs.** Zips and long glides (the sines fitter tracks chirps, but no zip reference exists), risers, swipes, shimmers, stereo-heavy designed sounds, and anything from the benchmark's held-out split have not been tested.
+
+**Speed.** `earshot fit` takes 10–100 s for short sounds and minutes for long impacts. `--clap` adds about 50 s to load the CLAP model.
+
+**Selection weights.** The `quality.score` weights were set on the same 12 recordings they were validated on. There is no held-out test for the selection step.
+
+</Accordion>

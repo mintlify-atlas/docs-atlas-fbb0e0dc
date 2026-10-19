@@ -1,0 +1,192 @@
+---
+title: "Make Sounds from Code with earshot forge"
+sidebarTitle: "forge"
+description: "earshot forge generates sounds using physical synthesis and an AI critic loop — write a recipe, run the search, read the critic's words, and improve."
+---
+
+`earshot forge` is a search-and-listen loop for making sounds from code. You write a recipe — a Python module that combines physical synthesis building blocks into a sound — and the forge renders many parameter sets from it, scores each one with a critic, keeps the best, mutates them, and repeats. The output is not just a set of WAV files; it is a `report.md` in the critic's own words ("sounds like: a wooden knock", "decay +2.4 outside the refs", "bumpy tail"), a side-by-side spectrogram, and an audition reel. You read the report, understand why the sound missed, rewrite the recipe, and run again. That outer loop — recipe edit followed by a new search — is what shapes a sound.
+
+## How the critic scores a candidate
+
+The critic combines model-based and model-free terms. The model-free terms run first as a **pre-screen** that ranks many renders before the full critic sees them, so the CLAP and AudioSet models only score the best candidates of each generation.
+
+| Component | What it measures |
+|---|---|
+| **Description match** (`match_z`) | CLAP cosine z-score of the candidate against the target description, with a margin over named confusions (`--alts`) |
+| **Realness** (`p_real`) | The realness model's probability of a real recording vs synthesized |
+| **Reference closeness** (`ref_typ_z`) | How close the candidate is to the real reference recordings in embedding space |
+| **Tonal balance** (`tone_db`) | 1/3-octave RMS distance from the references' median balance — model-free, always reported |
+| **Spectro-temporal envelope** (`env_pen`) | Whether the tail decays at the right rate; a tail that dies too fast is penalised |
+| **Artifacts** (`art_pen`) | Clicks, aliasing, DC/infrasound, harsh resonances, comb ring, cut tails, clipping |
+| **Polish** (`polish_pen`) | Attack sharpness, onset snap, tail smoothness |
+
+The pre-screen uses the model-free terms (tonal balance, envelope, artifacts, polish) to rank `prescreen` renders per generation, then passes only the best `pop` candidates to the full critic. Measured on the `keypress` recipe at 96 scored candidates, the pre-screen raised the passing candidates from 10.5 to 36.5 per generation and raised the top-5 mean total score from 5.77 to 6.17.
+
+## CLI usage
+
+```bash
+# List all available recipes and their reference-set categories
+earshot forge --list
+
+# Search for a keypress sound against real reference recordings
+earshot forge keypress --refs path/to/real/keypresses/ --budget 144 --variants 4 --dir made/keypress
+
+# Use a built-in reference set category
+earshot forge whoosh --refset whoosh_fast --budget 96 --dir made/whoosh
+
+# Full control: custom target, confusions, references, mode, output folder
+earshot forge whoosh --target "a fast crisp air whoosh" --alts "a wind gust" "a sword swing" \
+  --refs path/to/real/whooshes/ --mode real --dir made/whoosh
+
+# Re-render specific parameter sets from a previous search on new seeds
+earshot forge --render keypress --params made/keypress/report.json --seeds 1 2 3 --dir made/again
+
+# Verify that every pick of a set of output folders re-renders bit-exactly
+earshot forge --check out/forge_v2/*/final
+```
+
+## Key flags
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--list` | — | List all recipes with their `TARGET` and refset categories |
+| `--render RECIPE` | — | Re-render parameter sets from `--params` without searching |
+| `--params FILE` | — | JSON: a params dict, a list of them, a `report.json`, or a seed-bank file |
+| `--check DIR...` | — | Re-render every pick of these output folders from their `report.json` and compare WAVs |
+| `--target TEXT` | Recipe's `TARGET` | Description to aim for |
+| `--alts TEXT...` | Recipe's `ALTS` | Confusions the sound must score lower than |
+| `--refs PATH...` | Recipe's refs | Real reference recordings (files or folders) |
+| `--refset CATEGORY` | — | A reference-set category (its `forge` split only; bench split stays held out) |
+| `--budget N` | `160` | Candidates to score with the full critic |
+| `--pop N` | `16` | Population size per generation |
+| `--variants N` / `--keep N` | `4` | Diverse best sounds to write to the output folder |
+| `--seed N` | `0` | Random seed for the search |
+| `--dir PATH` | — | Output folder for WAVs, `report.json`, `report.md`, `compare.png`, `audition.wav` |
+| `--strategy es\|cma` | `es` | Search strategy: evolution strategy (default; beat CMA-ES at these budgets) or CMA-ES |
+| `--prescreen N` | `3 × pop` | Renders per generation pre-screened before the critic; `0` to disable |
+| `--robust N` | `3` | Re-render every kept sound on N new seeds to compute mean / min / pass rate |
+| `--shortlist N` | `2` | With `--robust`: robust-score this many × `--variants` candidates, keep the best robust means |
+| `--mode auto\|real\|designed` | `auto` | Critic mode: `real` requires realness; `designed` reports it but does not require it |
+| `--tone W` | Critic default (1.0) | Weight of the model-free tonal-balance penalty; `0` makes it report-only |
+| `--reps N` | `1` | Renders per candidate inside the search (2 = half as lucky, twice as slow) |
+| `--no-bank` | — | Do not start from or add to the recipe's seed bank |
+| `--workers N` | `EARSHOT_THREADS` | Render threads |
+
+## Output folder contents
+
+After a successful search, `--dir` contains:
+
+```
+made/keypress/
+  keypress_01.wav        # Best diverse sounds (--variants of them)
+  keypress_02.wav
+  keypress_03.wav
+  keypress_04.wav
+  report.md              # What was asked, search progress per generation, each pick in the critic's words
+  compare.png            # Each pick's spectrogram, envelope and 1/3-octave balance next to its nearest reference
+  audition.wav           # made, ref, made, ref ... peak-matched, to listen in pairs
+  audition.txt           # Cue list for audition.wav
+  report.json            # Every candidate's parameters and scores, reference scores (leave-one-out), AudioSet tags
+```
+
+The `report.json` is the key artefact: it carries a `render` block for each pick (recipe module, render function, member, complete parameters, seed, peak, palette gain), so every WAV re-renders from the report alone — months later, on a different machine.
+
+## forge v2 families
+
+The 183 forge v2 finals are organised as **families of named characters**: 34 motion-design categories, each with 4–6 variants chosen to be distinct in character, not near copies. For example, `whoosh_fast` has members named `crisp`, `heavy`, `tight`, `sleeve`, `wide` — each a different physical model of a fast air pass. Sixteen of the 34 categories are modelled on the designed effects of professional launch films (`pro_*` prefix); the rest are matched against real recordings.
+
+Variety between variants is measured: v2's CLAP cosine between variants sits at 0.71–0.85 in the five categories v1 had, versus 0.89–0.97 in v1 (the real recording sets score 0.52–0.77 on the same check). Clones are no longer the output of a forge run.
+
+## Python API
+
+```python
+from earshot.forge import forge
+
+# Basic search — returns the full report dict
+report = forge('keypress', target='a mechanical keyboard key press',
+               refs=['kit/keys/'], budget=144, out='made/keypress')
+
+# Read the critic's words for each pick
+for pick in report['picks']:
+    print(pick['name'], pick['score']['summary'])
+
+# Use a built-in reference set
+report = forge('whoosh', refset='whoosh_fast', budget=96, out='made/whoosh')
+
+# Family search: one search per named character in its own parameter box
+report = forge('click', refset='click', budget=48,
+               families={'soft': {'pitch': 3000.0, 'body': 0.2},
+                         'tink': {'pitch': 5000.0}},
+               out='made/click_palette')
+```
+
+<Note>
+The Python `forge()` defaults reproduce v1 behaviour (strategy `'es'`, no pre-screen, no seed bank) so earlier scripts stay comparable. The CLI defaults use the v2 setup (pre-screen `3 × pop`, seed bank, robust 3, shortlist 2). See `CHANGELOG.md` for what changed in 0.2.0.
+</Note>
+
+## DSP building blocks
+
+Recipes combine sources and effects from two modules. Everything is computed — no recorded audio anywhere in the chain.
+
+### Sources (`earshot/forge/dsp.py`)
+
+```python
+from earshot.forge import dsp
+
+r = dsp.rng(7)
+
+# Physical resonators
+hit = dsp.modal([620, 1490, 2710], [0.035, 0.02, 0.012], [1, .5, .3], 0.3, r)
+hit = dsp.excite(hit, dsp.contact(0.0015, r))   # strike it for 1.5 ms
+hit = dsp.mic(dsp.room(hit, r, rt60=0.18, wet=0.08), r)
+
+# Designed motion-design sources
+boom   = dsp.sub_drop(1.6, r, f0=130, f1=32)           # pitch-dropping sub with harmonics + click
+ding   = dsp.bell(1320, 1.2, r, 'bar', decay=0.5)      # inharmonic partials, doublet beating
+rise   = dsp.shepard(3.0, r, up=True, kind='noise')     # endless Shepard riser
+gust   = dsp.air(1.0, r, center=900, flutter=0.6)       # 1/f-ish turbulence with gusts
+sweep_ = dsp.osc(dsp.sweep(200, 6000, 3.0, 'ease', power=2.2), 'saw')  # pitch sweep
+
+# Layering
+hit = dsp.stack([(boom, 0, 0), (ding, 0.0, -9, 0.3)], onset_db=-24, peak_db=-1)
+```
+
+Available sources: modal resonators (`modal`, `modal_cloud`), noise (`noise`, `air`), oscillators (`osc`, `sweep`), Shepard risers (`shepard`), sub drops (`sub_drop`), bells (`bell`), FM synthesis (`fm`), room acoustics (`room`, `room_ir`, `mic`), and layering utilities (`stack`, `align`, `xfade`).
+
+### Effects (`earshot/forge/fx.py`)
+
+```python
+from earshot.forge import dsp, fx
+
+r = dsp.rng(7)
+hit = dsp.sub_drop(1.2, r)
+
+y = fx.saturate(hit, drive_db=9, mode='tape')                                    # tape saturation, oversampled
+y = fx.transient(y, attack_db=4, sustain_db=3)                                   # punchier onset, longer tail
+y = fx.reverb(y, r, rt60=1.8, size=0.7, predelay=0.012, wet=0.3, stereo=True)   # 16-line FDN hall
+y = fx.limit(y, ceiling_db=-1.0)                                                 # look-ahead peak limiter
+y = fx.eq_match(y, ['ref_01.wav', 'ref_02.wav'], amount=0.8)                     # EQ toward a reference
+y = fx.doppler(dsp.air(3, r, center=500), speed=30, dist=3)                      # pass-by with air absorption
+```
+
+Available effects: reverb (16-line modulated FDN with early reflections; IR cache for search efficiency), saturation (`tanh`/`tape`/`hard`/`fold`, oversampled), transient shaping, look-ahead peak limiter, EQ match (`match_curve`, `eq_bands`, `eq_match`), Doppler pass-by, pan/width/decorrelate, sweep filter (for risers and downlifters), varispeed/tape stop, glitch (slice repeat/reverse/drop/octave/crush), and granular synthesis.
+
+## The seed bank
+
+The seed bank (`earshot/forge/seeds/<recipe>.json`) stores good parameter sets from previous searches. By default (`--no-bank` is not set), the CLI starts each new search from the best previous parameters and adds the new picks back when the search finishes. This means a second run of the same recipe on the same target benefits from the first run's work.
+
+Use `--no-bank` when you want a clean search with no prior information — useful when exploring a very different part of the parameter space or benchmarking the search itself.
+
+## Honest limits (Goodhart's law)
+
+<Warning>
+The search optimises earshot's own models. After a search, the models are pleased — but that does not mean the sound is better. Model checks saturate: the made sounds land inside or above real recordings on every held-out phrasing and AudioSet tag, while a plain 1/3-octave measurement can still find them 8–13 dB off the real balance.
+
+Judge a finished sound by:
+- The **model-free measurements** (`tone_db`, `env_pen`, `art_pen` in `report.md`)
+- **Spectrograms** next to the references in `compare.png`
+- **Robust re-renders** (the `robust` column in `report.md`, showing mean / min / pass rate over new seeds)
+- A **human blind test** (`audition.wav` has made and reference interleaved and peak-matched)
+
+The realness model is easy to fool: a modal resonator plus a room and a mic noise floor reliably reads "real". A high `p_real` in the report proves very little.
+</Warning>

@@ -1,0 +1,132 @@
+---
+title: "Earshot: Audio Intelligence for Coding Agents"
+sidebarTitle: "Introduction"
+description: "Earshot turns audio files into structured evidence that AI agents can reason about — running CPU-only with a CLI, Python API, and MCP server."
+---
+
+Earshot gives AI coding agents the ability to hear. Agents can now write code that renders a film, a product demo, or a game — but they still cannot listen to what they made. They cannot tell a premium key press from a cheap one, notice that a hit lands 80 ms after the cut, or hear that the music swells in the wrong place. Earshot closes that gap: it turns sound into structured evidence an agent can reason about, running entirely on CPU, with no GPU required, and exposing every capability through a CLI, a Python API, and an MCP server.
+
+## The Three Surfaces
+
+Earshot is the same toolset in three shapes. Choose the one that fits how you are calling it.
+
+<CardGroup cols={3}>
+  <Card title="CLI" icon="terminal">
+    `earshot <command>` — great for one-off calls, shell scripts, and CI
+    pipelines. Each invocation is a new process that loads the models (~20–40 s),
+    so use it when you need a single answer.
+  </Card>
+  <Card title="Python API" icon="python">
+    `from earshot import api` — import earshot directly into a script or
+    notebook. Models load once per process, so repeated calls in the same script
+    are fast.
+  </Card>
+  <Card title="MCP Server" icon="server">
+    `earshot mcp` — run earshot as an MCP server for Claude Code or any
+    MCP-compatible agent. Models stay warm across calls; this is the right choice
+    for agents that need to call earshot many times in a session.
+  </Card>
+</CardGroup>
+
+### When to use which surface
+
+| Situation | Recommended surface |
+|---|---|
+| One-off check on a single file | CLI |
+| A short script that calls earshot 2–3 times | CLI or Python API |
+| A script that calls earshot in a loop | Python API |
+| An AI agent running interactively (Claude Code, etc.) | MCP server |
+| Automated CI pipeline over many files | Python API |
+
+## Command Reference
+
+Every command is available on all three surfaces. `measure`, `sfx`, and `kit` load no models and return immediately.
+
+| Command | What an agent gets |
+|---|---|
+| `describe FILE` | What it sounds like: calibrated tags (z-score) with the closest alternative readings, AudioSet labels, and measurements |
+| `match FILE QUERY [--alts ...]` | How well a description fits: cosine similarity, z-score among the vocabulary, a verdict (strong / plausible / weak / no match) with held-out evidence |
+| `rank QUERY PATHS...` | Many candidate files sorted by a description — pick the best download |
+| `find FILE QUERY` | The best moments inside a long recording, returned as sample trims (start / end seconds) |
+| `compare FILE --refs DIR` / `ab A B` | Nearest reference recordings and typicality; A/B two sounds or two trims, differences in words |
+| `realness FILE...` | Real recording / pro-produced vs code-synthesized, with evidence and per-window scores |
+| `timeline FILE [--video V] [--cues C]` | The listening transcript: events (time, level, tag), sections, loudness, beat grid, sync of sound to picture cuts and cue frames |
+| `sheet FILE -o out.png` | An annotated PNG (video frames, sections, labelled events, spectrogram, waveform, loudness, sync markers) for agents that read images |
+| `critique FILE [--video V]` | A launch-video scorecard against a profile of 7 professional launch films, with timestamped fixes |
+| `profile REFS... -o p.json` | Build your own reference profile from films you admire |
+| `measure FILE` | Objective measurements only — no models: LUFS, true peak, LRA, envelope, spectrum, tempo / key |
+| `forge RECIPE --refset CAT` | Make a sound in code and improve it by listening |
+| `fit FILE -o recipe.py` | Translate a recording into a forge recipe module that re-renders it, with knobs and morphs |
+| `sfx render ID -o x.wav` | A sound from the shipped bank of 201, aimed at the picture (`--dur`, `--apex`, `--pitch`) and audited; `sfx list`, `sfx check` (no models) |
+| `kit init / render / check` | A film's sound kit: one bank sound per role, rendered into cached takes with measured onset / peak / end (no models) |
+| `gallery DIR -o page.html` | One static HTML listening page of forge outputs: players, spectrograms, numbers |
+| `llm FILE --yes-upload` | Optional audio-LLM critique (Gemini), only with your own key and explicit consent |
+| `mcp` | The same tools as an MCP server for Claude Code and other agents |
+| `doctor [--load]` | Check the install, models, data files, and CPU settings |
+
+<Note>
+  Every command prints a plain-language summary first. Add `--json` to get the full structured result, or `--out result.json` to save it to a file. Errors are a single line on stderr in the form `earshot <command>: error: ...` with exit code 1.
+</Note>
+
+## Key Capabilities
+
+<CardGroup cols={2}>
+  <Card title="Describe & Match" icon="magnifying-glass">
+    Turn any audio file into a calibrated text description with z-scores and
+    vocabulary rankings. Match a description against a file to get a
+    strong / plausible / weak verdict backed by held-out evidence.
+  </Card>
+  <Card title="Find & Timeline" icon="clock">
+    Locate the best moments of a specific sound inside a long recording, or
+    generate a full second-by-second listening transcript of a soundtrack or film
+    with event detection, loudness, beat grid, and picture-sync.
+  </Card>
+  <Card title="Realness" icon="shield-check">
+    Classify whether a sound is a real recording or code-synthesized, with
+    per-window evidence. Held-out ROC-AUC 0.92 with whole sound families held
+    out.
+  </Card>
+  <Card title="Forge & Fit" icon="wand-magic-sparkles">
+    Generate sounds entirely in code using physical synthesis (modal resonators,
+    filtered noise, reverb, EQ), then iterate with an earshot critic. Or run
+    `fit` to translate a real recording into a re-renderable recipe with knobs
+    for variation and morphing.
+  </Card>
+  <Card title="SFX Bank & Kits" icon="music">
+    201 ready-to-render sound effects stored as code — no models, no network,
+    renders in seconds. `sfx render` aims a sound at a moment in the picture;
+    `kit` renders a whole film's effect set with measured sync points.
+  </Card>
+  <Card title="Sheet & Critique" icon="chart-bar">
+    Generate an annotated PNG of a soundtrack for agents that read images, or
+    run a launch-video scorecard against a profile of 7 professional films with
+    timestamped fixes.
+  </Card>
+</CardGroup>
+
+## Quick Links
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install Earshot, download the two open models (~1.1 GB), and verify your
+    setup with `earshot doctor`.
+  </Card>
+  <Card title="Quickstart" icon="bolt" href="/quickstart">
+    Run your first `describe`, `match`, and `find` in under 5 minutes.
+  </Card>
+  <Card title="MCP Server" icon="server" href="/integrations/mcp-server">
+    Connect Earshot as an MCP server for Claude Code so models stay warm across
+    every call.
+  </Card>
+  <Card title="Python API" icon="python" href="/integrations/python-api">
+    Use `from earshot import api` in your own scripts and notebooks.
+  </Card>
+</CardGroup>
+
+<Warning>
+  Each CLI call is a new process that loads both models before answering — expect **~20–40 seconds of startup time** per call. `measure`, `sfx`, and `kit` load no models and return immediately. For more than a few calls, use the MCP server (models stay loaded) or a single Python script with `from earshot import api`.
+</Warning>
+
+<Note>
+  earshot hears through two open models and a set of measurements. Trustworthy results: loudness, timing and sync to picture, "is this the kind of sound I asked for" on single exposed sounds, picking among candidates, obvious code-synthesized sources. Hints only: tags of events inside a busy mix, music genre and mood. It cannot judge taste or emotion, provenance or licences, speech content, or anything above 14 kHz from the models. See the [Limits](/reference/limits) page for the full picture.
+</Note>

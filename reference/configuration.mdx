@@ -1,0 +1,104 @@
+---
+title: "Configure Earshot with Environment Variables"
+sidebarTitle: "Configuration"
+description: "All Earshot settings are controlled by environment variables — model paths, thread count, cache location, offline mode, and precision."
+---
+
+Earshot needs no config file. Every setting is read from environment variables at startup, so you can override them per-run on the command line, in a `.env` file, or in an MCP server's `env` block without touching any project files. The defaults work out of the box for most machines; the variables below let you point earshot at a different model, tighten its thread budget, or run it completely offline.
+
+## Environment Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `EARSHOT_HOME` | `.cache/` inside the repo (dev) or `~/.cache/earshot` | Cache root for models, embeddings, and decoded audio |
+| `EARSHOT_THREADS` | `min(4, cores // 2)` | Torch CPU threads per process — earshot never uses a GPU |
+| `EARSHOT_CLAP` | `laion/larger_clap_general` | CLAP model: a Hub id or a local folder containing `config.json` + `model.safetensors` |
+| `EARSHOT_AST` | `MIT/ast-finetuned-audioset-10-10-0.4593` | AudioSet tagger: a Hub id or a local folder |
+| `EARSHOT_CLAP_REVISION` | pinned `16c8cc3` | Hub revision (commit SHA, branch, or tag) to use instead of the pinned one |
+| `EARSHOT_AST_REVISION` | pinned `f826b80` | Hub revision for the AST model |
+| `EARSHOT_OFFLINE` | unset | Set to `1` to prevent all network access — models must already be in the cache |
+| `EARSHOT_PRECISION` | `bf16` | `bf16` on CPUs with AVX512-BF16 or AMX; falls back to `fp32` elsewhere. Set `fp32` to force it. |
+| `EARSHOT_DEBUG` | unset | Set to `1` to show full tracebacks on errors instead of one-line messages |
+| `EARSHOT_BANK` | unset | Additional bank files, joined by the OS path separator |
+
+<Note>
+`HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1` mean the same thing to earshot as `EARSHOT_OFFLINE=1`. Earshot never sets or clears any of the three flags itself.
+</Note>
+
+## Offline Mode
+
+When any offline flag is set, earshot never touches the network. If a model is not already in the cache, earshot exits with an error that names the missing folder rather than attempting a download.
+
+```bash
+EARSHOT_OFFLINE=1 earshot describe click.wav
+```
+
+To pre-download the pinned model revisions before going offline, run:
+
+```bash
+earshot doctor --fetch
+```
+
+## Custom Models
+
+Set `EARSHOT_CLAP` or `EARSHOT_AST` to either a Hugging Face Hub id or a path to a local folder. Local folders must contain `config.json` and `model.safetensors`; earshot loads them from disk as-is and **never downloads into a local folder path**.
+
+```bash
+# Use a local model folder
+EARSHOT_CLAP=/models/my-clap-model earshot describe audio.wav
+
+# Use a different Hub model
+EARSHOT_CLAP=my-org/my-clap-variant earshot describe audio.wav
+```
+
+A custom Hub model id without a revision uses `main`. Set `EARSHOT_CLAP_REVISION` or `EARSHOT_AST_REVISION` to pin a specific commit SHA, branch, or tag. Only safetensors weights are supported for custom revisions.
+
+## Precision
+
+`bf16` is used only on CPUs with native bf16 support (AVX512-BF16 or AMX). On all other hardware, earshot automatically falls back to `fp32` — bf16 emulation was measured 16× slower on unsupported hardware. When native bf16 is available, embeddings are within cosine 0.9993 of fp32 results and run approximately 1.4× faster.
+
+```bash
+# Force fp32 on a machine that has AVX512-BF16 (e.g. to compare)
+EARSHOT_PRECISION=fp32 earshot describe audio.wav
+```
+
+## Pinned Model Revisions
+
+Earshot downloads exactly these files on first use, at exactly these commits, with safetensors weights:
+
+| Model | Hub ID | Pinned Revision | Size |
+|---|---|---|---|
+| CLAP | `laion/larger_clap_general` | `16c8cc3` | ~776 MB |
+| AST | `MIT/ast-finetuned-audioset-10-10-0.4593` | `f826b80` | ~90 MB |
+
+<Info>
+Caches created before earshot 0.2.1 hold CLAP's earlier main revision `ada0c23` with pickle weights (`pytorch_model.bin`). Earshot still loads this from the local cache (using `torch weights_only`) and never re-downloads it. Running `earshot doctor --fetch` downloads the pinned safetensors revision and earshot uses it from then on.
+</Info>
+
+## earshot doctor
+
+`earshot doctor` checks your installation without loading any models. It reports package versions, ffmpeg, data files, model cache state, and whether any offline flag is set.
+
+```bash
+# Fast check — loads nothing heavy
+earshot doctor
+
+# Also loads both models and reports revision, weights file, and precision in use
+earshot doctor --load
+
+# Pre-download the pinned model revisions (refused while an offline flag is set)
+earshot doctor --fetch
+```
+
+`earshot doctor` reports, per model:
+
+- The pinned revision earshot wants
+- What the cache holds: `cached`, `legacy`, `incomplete`, or `missing`
+- Whether the legacy CLAP cache (`ada0c23`) is present
+- The folder that will actually load
+
+With `--load`, it additionally times one embedding window (~20–40 s on first load) and reports the revision, weights filename, and precision (bf16 or fp32) actually used.
+
+<Tip>
+Run `earshot doctor --fetch` once after install to pre-download both models into the cache. After that, earshot loads them locally and never contacts the Hub again.
+</Tip>

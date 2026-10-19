@@ -1,0 +1,128 @@
+---
+title: "Detect Real vs Synthesized Audio with earshot realness"
+sidebarTitle: "realness"
+description: "Classify audio as a real recording or code-synthesized sound with per-window scores and a verdict — ROC-AUC 0.92 on held-out data."
+---
+
+`earshot realness` tells you whether a sound was made with a microphone (or produced professionally) or generated in code. It runs a small transparent model trained on recordings of real sounds and amateur procedural audio — oscillators, filtered noise, simple envelopes, algorithmic reverb — and returns a single probability (`p_real`), a verdict, and plain-language evidence for the decision. For files longer than 6 s it also segments the audio into 4-second windows and scores each one separately, so you can find the synthesized layer even inside a longer recording.
+
+## What "real" means here
+
+`realness` does **not** judge acoustic vs electronic. Real recordings **and** professionally produced audio (electronic music, pro sound design — risers, sub drops in launch films) both count as real. What it flags is **amateur procedural audio written in code**: oscillators, filtered random noise, simple envelopes, algorithmic reverb, beeps. Professionally designed UI sounds and chimes can read as code-synthesized even when they were painstakingly produced.
+
+## Usage
+
+```bash
+earshot realness FILE... [OPTIONS]
+```
+
+<ParamField path="FILE" type="string[]" required>
+  One or more audio files, video files, or folders. With multiple inputs, a summary table is printed.
+</ParamField>
+
+<ParamField path="--start SECONDS" type="float">
+  Judge only from this offset. With multiple files it applies to each.
+</ParamField>
+
+<ParamField path="--end SECONDS" type="float">
+  Judge only up to this offset.
+</ParamField>
+
+<ParamField path="--ast" type="boolean">
+  Also run the AudioSet tagger for evidence (slower). Adds AudioSet synth classes — Sine wave, Beep, Synthesizer — to the evidence list.
+</ParamField>
+
+<ParamField path="--json" type="boolean">
+  Print the full result as JSON.
+</ParamField>
+
+<ParamField path="--out FILE" type="string">
+  Also write the JSON result to this file.
+</ParamField>
+
+<ParamField path="--threads N" type="integer">
+  Torch CPU threads.
+</ParamField>
+
+## Output
+
+For a single file, `realness` prints:
+
+- **`p_real`** — probability the file is a real or pro-produced recording (0 = synthesized, 1 = real)
+- **Verdict** — one of `real or pro-produced`, `uncertain`, or `likely code-synthesized`
+- **Evidence** — the measurements and CLAP signals that drove the decision, in words
+- **Segments** _(files over 6 s)_ — per-4-second-window scores with start/end times and individual verdicts
+
+```bash
+earshot realness hit.wav
+```
+
+```text
+hit.wav: real or pro-produced (p_real 0.94). Evidence: noise floor present, natural spectral texture,
+no pure tonal lines.
+```
+
+```bash
+earshot realness soundtrack.wav
+```
+
+```text
+soundtrack.wav: real or pro-produced (p_real 0.87). 8 windows scored; no window leans synthesized.
+```
+
+## Validation numbers
+
+From the held-out evaluation (1484 clips grouped cross-validation, sound families held out):
+
+| Scheme | ROC-AUC | Accuracy |
+|---|---|---|
+| Leave one real category / synth family out (headline) | **0.922** | 0.860 |
+| Leave one synth generator type out | 0.958 | 0.902 |
+| Retired synthesized score, never trained on | 0.948 | 0.862 |
+
+Verdict bands (held-out, 47% real / 53% synthesized pool):
+
+- **`real or pro-produced`**: p_real ≥ 0.77 — ~92% precision, **6.7% of real clips mis-called synthesized**
+- **`likely code-synthesized`**: p_real ≤ 0.17 — ~92% precision, **5.5% of synthesized clips mis-called real**
+- **`uncertain`**: the remaining ~20% of clips get no firm verdict
+
+Pro-produced music held out by provider: mean p_real 0.86; 44 of 52 files called real, none called synthesized.
+
+## Python API
+
+<CodeGroup>
+```python Single file
+from earshot import api
+
+result = api.realness('sound.wav')
+# result['p_real']    — probability (0–1)
+# result['verdict']   — 'real or pro-produced' | 'uncertain' | 'likely code-synthesized'
+# result['why']       — list of evidence strings
+# result['evidence']  — structured evidence records
+# result['segments']  — per-window scores for files over 6 s
+# result['summary']   — plain-language summary
+```
+
+```python Multiple files
+from earshot import api
+
+table = api.realness_many(['a.wav', 'b.wav', 'synth.ogg'])
+# returns {counts: {...}, files: [{path, p_real, verdict, ...}, ...]}
+```
+
+```python Trim a region
+from earshot import api
+
+result = api.realness('film.mp4', start=20.0, end=32.0)
+```
+</CodeGroup>
+
+<Warning>
+  **Honest limits — use as a hint, not ground truth**
+
+  - **Easy to fool**: add a modal resonator, a room impulse, and a noise floor to any synthesized sound and it reads "real". After a forge search that optimises `p_real`, the realness model stops telling made from real — use 1/3-octave measurements and spectrograms next to the references instead.
+  - **A high p_real proves little after a search tuned on it.** The model checks that made sounds pass; held-out measurements (tonal balance, spectral envelope) are the honest indicator.
+  - **Verdicts depend on file length.** A clip up to 6 s is judged with the clip thresholds (lo 0.17); a longer file uses the mean of its 4-second windows with file-level thresholds (lo 0.40). The same p_real can get a milder verdict as a long file. Judge the trim you will actually use (`--start` / `--end`), not a multi-take recording.
+  - **A code-made layer under a louder real mix is usually missed.** Judge source files and stems individually, not only the final mix.
+  - **"Uncertain" on designed library sounds** (magic chimes, motion whooshes) and real electronic music is expected. Read it as "sounds designed", not "fake".
+</Warning>

@@ -1,0 +1,187 @@
+---
+title: "Listen Through a Film's Soundtrack with timeline and sheet"
+sidebarTitle: "timeline / sheet"
+description: "Get a second-by-second listening transcript of a soundtrack, sync events to video cuts, and render an annotated spectrogram PNG for visual agents."
+---
+
+Two commands let an agent reason about a complete soundtrack rather than a single sound. `earshot timeline` produces a structured, second-by-second listening transcript — detected events with tags, section boundaries, a loudness curve, a beat grid, and (when you supply a video) synchronisation of every audio event to picture cuts and cue frames. `earshot sheet` renders all of that into a single annotated PNG: video frames, labelled events, spectrogram, waveform, loudness curve, and sync markers, for agents and humans that can read images.
+
+---
+
+## earshot timeline
+
+`timeline` analyses a full soundtrack in one pass and returns the events, sections, loudness, and beat grid as structured data. When you pass `--video`, it also detects picture cuts and reports how closely each audio event aligns to them.
+
+### Usage
+
+```bash
+earshot timeline FILE [--video V] [--cues C] [OPTIONS]
+```
+
+<ParamField path="FILE" type="string" required>
+  Audio file or video. When a video is given, its own audio track is analysed and its picture cuts are detected.
+</ParamField>
+
+<ParamField path="--video V" type="string">
+  A separate video file to read picture cuts from. Use this when your soundtrack is a separate WAV / OGG and the video is the picture it was made for.
+</ParamField>
+
+<ParamField path="--cues C" type="string">
+  Cue events to sync to. Accepts: a JSON file `{fps, events:[{f, kind, id}]}`, a JSON list of times, or a comma-separated list of times in seconds — e.g. `"1.5,3.2,5.8"`.
+</ParamField>
+
+<ParamField path="--from / --start SECONDS" type="float">
+  Zoom: analyse only from this time.
+</ParamField>
+
+<ParamField path="--to / --end SECONDS" type="float">
+  Zoom: analyse only up to this time.
+</ParamField>
+
+<ParamField path="--detail" type="string">
+  Model budget: `low` — 12 CLAP-tagged events, no AudioSet (fastest); `normal` — 20 events + AudioSet on the top event and 3 section crops (default); `high` — up to 96 events with 16 AudioSet labels, finer sections.
+</ParamField>
+
+<ParamField path="--fresh" type="boolean">
+  Recompute everything (ignore cached result and model outputs) and store the new result.
+</ParamField>
+
+### Output fields
+
+| Field | What it contains |
+|---|---|
+| `events` | Detected audio events — start time, level, tag, z-score, AudioSet label |
+| `sections` | Coarser structural boundaries (intro, body, outro, etc.) |
+| `loudness` | Short-term LUFS curve at 0.5 s resolution |
+| `beats` | Beat grid times and estimated tempo (BPM) |
+| `cuts` | Visual cut times detected from the video picture |
+| `cut_sync` | Each cut matched to the audio event that answers it (onset, whoosh peak, level peak) |
+
+### Examples
+
+<CodeGroup>
+```bash Audio file only
+earshot timeline soundtrack.wav --json
+```
+
+```bash With video sync
+earshot timeline soundtrack.wav --video film.mp4
+```
+
+```bash With cue markers
+earshot timeline mix.wav --cues cues.json
+```
+</CodeGroup>
+
+### Python API
+
+```python
+from earshot import api
+
+result = api.timeline('soundtrack.wav', video='film.mp4')
+# result['events']    — detected SFX events
+# result['sections']  — structural boundaries
+# result['loudness']  — {ts, Ls} loudness curve
+# result['beats']     — beat times and tempo
+# result['cuts']      — visual cut times
+# result['cut_sync']  — each cut → matched audio event
+# result['summary']   — plain-language paragraph
+```
+
+---
+
+## earshot sheet
+
+`sheet` calls `timeline` internally, then renders all the data into a single annotated PNG. It is the visual form of `timeline`, designed for agents and reviewers who can inspect images. Each labelled event, section boundary, picture frame, loudness envelope, spectrogram, and sync marker is drawn at its correct time position so you can see the relationship between picture and sound at a glance.
+
+### Usage
+
+```bash
+earshot sheet FILE -o out.png [--video V] [--cues C] [OPTIONS]
+```
+
+<ParamField path="FILE" type="string" required>
+  Audio file or video.
+</ParamField>
+
+<ParamField path="-o out.png" type="string">
+  Output PNG path. Defaults to `<file stem>_sheet.png` in the current folder.
+</ParamField>
+
+<ParamField path="--video V" type="string">
+  A separate video for frames and picture cuts.
+</ParamField>
+
+<ParamField path="--cues C" type="string">
+  Cue events to mark (same format as `timeline --cues`).
+</ParamField>
+
+<ParamField path="--width N" type="integer">
+  Image width in pixels (1000–2400; default `2000`).
+</ParamField>
+
+### What the PNG shows
+
+The sheet is divided into horizontal lanes, aligned to the same time axis:
+
+- **Video frames** — sampled at picture cuts, shown as thumbnail images
+- **Labelled events** — each detected audio event with its tag and level
+- **Spectrogram** — log-frequency STFT magnitude
+- **Waveform** — amplitude envelope
+- **Loudness** — short-term LUFS curve
+- **Sync markers** — cue or cut lines aligned to audio events
+
+### Examples
+
+<CodeGroup>
+```bash Render sheet from a video
+earshot sheet film.mp4 -o film_sheet.png
+```
+
+```bash Render sheet with a separate audio track
+earshot sheet soundtrack.wav -o sheet.png --video film.mp4
+```
+</CodeGroup>
+
+### Python API
+
+```python
+from earshot import api
+
+result = api.sheet('soundtrack.wav', out='sheet.png', video='film.mp4')
+# result['png']      — path to the rendered PNG
+# result['timeline'] — the full timeline data (same as api.timeline())
+# result['summary']  — plain-language paragraph
+```
+
+---
+
+## Validation numbers
+
+From the held-out evaluation on a 60 s soundtrack with every SFX placement logged:
+
+- **93%** of placed sound effects detected as events (96% of those louder than the music bed; 89% of quiet ones under music)
+- **84%** of sync-aligned placements within 5 ms of the true offset; **96%** within one video frame
+- Beat grid: a 120 BPM score found at exactly 120.0 BPM
+
+Event tags are hints, not verdicts: right kind for about **1 in 2** exposed events, **1 in 4** for events buried under music. Times and levels are accurate; the label is a guess for busy mixes.
+
+## Performance
+
+A 60–90 s film takes approximately **1.5 minutes** on a laptop CPU (Ryzen 7, `EARSHOT_THREADS=2`). The sheet render itself adds only a few seconds on top of the timeline analysis.
+
+<Tip>
+  For repeated analyses of the same film — during an iterative mix session — use the MCP server or the Python API. The timeline result is cached by content hash; subsequent calls with the same file pay only the cache lookup, not the full model pass. Use `--fresh` to force a recompute after re-exporting the audio.
+</Tip>
+
+## Common flags
+
+| Flag | Description |
+|---|---|
+| `--json` | Print the full result as JSON |
+| `--out FILE` | Also write the JSON result to this file |
+| `--threads N` | Torch CPU threads |
+
+<Info>
+  **Cuts without a hit** in `timeline` and `critique` are detected by the same matcher: a visual event is "sounded" if there is a new audio onset within ±100 ms, a whoosh/riser peak within 300 ms, or a level peak within 150 ms. A whoosh swelling through a cut does not count as a new onset — check the sheet before adding a sound at a cut that the transcript flags as unsounded.
+</Info>

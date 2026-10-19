@@ -1,0 +1,316 @@
+---
+title: "Earshot Python API: All Commands as Importable Functions"
+sidebarTitle: "Python API"
+description: "Import earshot directly in Python for lazy model loading, warm reuse across calls, and full access to describe, match, forge, sfx, kit, and more."
+---
+
+The Python API gives you all of earshot's capabilities inside a single process, with one key advantage over the CLI: models load lazily on first use and stay warm for every subsequent call in the same process. That means the 20–40 second cold-start cost is paid exactly once per script run, not once per command. For scripts that chain several audio operations together — rank a folder, find the best trim, describe it, check realness — this makes a significant difference in practice.
+
+## Two Import Styles
+
+Earshot exposes the same functions through two equivalent import paths. Use whichever fits your coding style:
+
+```python
+import earshot
+
+earshot.describe('whoosh.wav')
+earshot.find('typing.ogg', 'a single isolated key press')
+earshot.timeline('soundtrack.wav', video='film.mp4')
+```
+
+```python
+from earshot import api
+
+api.describe('whoosh.wav')
+api.match('key.ogg', 'a deep thocky mechanical keyboard press', alts=['a clicky blue switch'])
+api.rank('a single isolated key press', ['take1.wav', 'take2.wav', 'take3.wav'])
+```
+
+Both styles give access to the same underlying functions. The `api` namespace is convenient when you want tab-completion or an explicit reference to the module.
+
+## Full API Reference
+
+<Note>
+Every API function returns the full result dict directly — the same data that `earshot <command> --json` prints to stdout. There is no need to parse text output.
+</Note>
+
+### Listening & Analysis
+
+<Accordion title="describe, match, rank, find">
+
+**`api.describe(file)`** → description dict
+
+Returns what the file sounds like: calibrated tags with z-scores, the closest alternative readings, AudioSet labels, and measurements. Accepts `--start` / `--end` for trimmed reads.
+
+```python
+result = api.describe('enter.ogg')
+# result['tags'][0] == {'label': 'a single mechanical keyboard key press', 'z': 5.4}
+```
+
+---
+
+**`api.match(file, query, alts=None)`** → verdict dict
+
+How well a text description fits a sound: cosine similarity, z-score among the vocabulary, and a verdict (`strong` / `plausible` / `weak` / `no match`). Pass `alts` as a list of realistic confusions to sharpen the result.
+
+```python
+result = api.match('key.ogg', 'a deep thocky mechanical keyboard press',
+                   alts=['a clicky blue switch', 'a mouse click'])
+# result['verdict'] == 'strong'
+# result['z'] == 3.7
+```
+
+---
+
+**`api.rank(query, paths)`** → sorted list
+
+Ranks many candidate files by a description. Returns the list sorted best-first. Useful for picking among a folder of downloads.
+
+```python
+ranked = api.rank('a soft felt mallet hit', ['sfx/a.wav', 'sfx/b.wav', 'sfx/c.wav'])
+```
+
+---
+
+**`api.find(file, query, top=4)`** → list of trims
+
+Finds the best moments inside a long recording as sample trims (start/end seconds). Each trim includes a kind (`stroke`, `event`, `window`) and head/tail cleanliness indicators.
+
+```python
+trims = api.find('typing_session.ogg', 'a single mechanical key press', top=4)
+# trims[0] == {'start': 3.94, 'end': 4.19, 'z': 4.1, 'kind': 'stroke'}
+```
+
+</Accordion>
+
+<Accordion title="compare, ab">
+
+**`api.compare(file, refs)`** → comparison dict
+
+Measures similarity of a file to a set of reference recordings. Returns typicality z-scores and the nearest references by CLAP embedding.
+
+```python
+result = api.compare('candidate.wav', refs='approved_refs/')
+```
+
+---
+
+**`api.ab(a, b)`** → differences dict
+
+A/B two sounds: which is closer to a query (if given), and how B differs from A in measured words — louder, brighter, longer decay. Pass `a_start`/`a_end`/`b_start`/`b_end` for trims from `find`.
+
+```python
+result = api.ab('before.wav', 'after.wav')
+```
+
+</Accordion>
+
+<Accordion title="realness, realness_many">
+
+**`api.realness(file)`** → verdict dict
+
+Classifies a file as real recording / pro-produced vs code-synthesized, with evidence and per-window scores. The verdict uses different thresholds for short clips (≤ 6 s) and longer files.
+
+```python
+result = api.realness('candidate.wav')
+# result['verdict'] in ('real', 'likely real', 'uncertain', 'likely code-synthesized', 'code-synthesized')
+# result['p_real'] == 0.93
+```
+
+---
+
+**`api.realness_many(files)`** → list of verdicts
+
+Batch realness check over a list of files. More efficient than calling `realness` in a loop because the models stay warm across all files.
+
+```python
+results = api.realness_many(['a.wav', 'b.wav', 'c.wav'])
+```
+
+</Accordion>
+
+<Accordion title="timeline, sheet">
+
+**`api.timeline(file, video=None, cues=None)`** → transcript dict
+
+The full listening transcript of a soundtrack or film: sound events with time, level and tags; sections; loudness curve; beat grid; and sync offsets per picture cut and cue frame.
+
+```python
+result = api.timeline('soundtrack.wav', video='film.mp4', cues='out/cues.json')
+```
+
+---
+
+**`api.sheet(file, out, video=None, cues=None)`** → PNG path
+
+Writes an annotated PNG of the soundtrack: video frames, sections, labelled sound events, spectrogram, waveform, loudness curve, and sync markers coloured by accuracy.
+
+```python
+path = api.sheet('soundtrack.wav', 'out/qa/sound_sheet.png',
+                 video='film.mp4', cues='out/cues.json')
+```
+
+</Accordion>
+
+<Accordion title="critique, profile, measure">
+
+**`api.critique(file, video=None)`** → scorecard dict
+
+A launch-video scorecard against a profile of seven professional launch films. Each metric is reported as `ok` / `low` / `high` with timestamped fix suggestions and an overall verdict.
+
+```python
+result = api.critique('film.mp4')
+# result['verdict'] == 'close'
+# result['fixes'][0] == {'severity': 'major', 'text': 'nothing reaches body level until 0:01.01'}
+```
+
+---
+
+**`api.profile(refs, out)`** → profile dict
+
+Builds a custom reference profile from your own collection of reference films. The resulting profile can be passed to `critique` as a baseline.
+
+```python
+result = api.profile(['ref1.mp4', 'ref2.mp4', 'ref3.mp4'], out='my_profile.json')
+```
+
+---
+
+**`api.measure(file)`** → measurements dict
+
+Objective measurements only — no models, no torch import. Returns LUFS, true peak, LRA, envelope, spectrum, and tempo/key. Fast on any machine.
+
+```python
+result = api.measure('master.wav')
+# result['lufs_i'] == -14.2
+# result['true_peak_dbtp'] == -0.9
+```
+
+</Accordion>
+
+<Accordion title="llm_critique, doctor">
+
+**`api.llm_critique(file)`** → critique dict
+
+Optional audio-LLM critique via Google Gemini. Requires `GEMINI_API_KEY` set in the environment and explicit user consent. Audio is uploaded to Google (mono 64 kbps); never call this without asking the user first.
+
+---
+
+**`api.doctor()`** → health dict
+
+Checks the install, models, data files, and CPU settings. Pass `load=True` to also time the model loads.
+
+```python
+result = api.doctor()
+```
+
+</Accordion>
+
+### Sound Bank — `sfx` and `kit`
+
+The `sfx` and `kit` functions use no models. They are pure DSP and are fast even on the first call.
+
+<Accordion title="sfx_list, sfx_render, sfx_check">
+
+**`api.sfx_list(kind=None)`** → list of entries
+
+Browse the 201-sound bank. Filter by `kind` (e.g. `'whoosh'`, `'hit'`, `'click'`) or `category`. Each entry includes id, length, peak time, cue kinds, and available knobs.
+
+```python
+entries = api.sfx_list(kind='whoosh')
+```
+
+---
+
+**`api.sfx_render(id, out, dur=None, apex=None, pitch=None, seed=None)`** → audio array + meta
+
+Renders one bank sound by id. Knobs edit the recipe's own parameters — never resample. `dur` lands the total length exactly; `apex` places the loudest 5 ms within the target time; `pitch` accepts a note name or Hz.
+
+```python
+y, meta = api.sfx_render('whoosh_fast/crisp', 'w.wav', dur=0.8, apex=0.32)
+y, meta = api.sfx_render('pluck/kalimba', 'e5.wav', pitch='E5')
+```
+
+---
+
+**`api.sfx_check(file)`** → audit dict
+
+Audits a sound file (or rendered take) for clicks, cut tails, clipping, DC offset, comb ring, a re-rising tail, and a pitch that climbs more than 4 semitones. Run automatically on every `sfx_render` call.
+
+```python
+result = api.sfx_check('w.wav')
+# result['clean'] == True
+```
+
+</Accordion>
+
+<Accordion title="kit_init, kit_render, kit_check, kit_audition">
+
+**`api.kit_init(preset, out)`** → kit dict
+
+Creates a film sound kit JSON from a preset: `'calm'` (default for text-led films), `'crisp'` (energetic product films), or `'minimal'` (designed effects only).
+
+```python
+result = api.kit_init('calm', 'audio/kit.json')
+```
+
+---
+
+**`api.kit_render(kit_json, out)`** → lock dict
+
+Renders a kit into deterministic, cached takes and writes `kit.lock.json` with measured onset, peak, and end per take. A take that fails the sfx audit is re-rolled on a new seed.
+
+```python
+lock = api.kit_render('audio/kit.json', 'audio/kit')
+```
+
+---
+
+**`api.kit_check(kit_json, out=None)`** → warnings dict
+
+Checks the kit for double attacks on hit roles, pitches that climb (the rising "synth whip"), levels over 0 dBFS, and other render-blocking issues.
+
+---
+
+**`api.kit_audition(kit_json, out)`** → path
+
+Writes a single audition WAV of all kit takes so you can listen through the whole kit in one play.
+
+</Accordion>
+
+## Forge Python API
+
+The `earshot.forge` module exposes the full sound-synthesis pipeline as Python functions. Import the top-level helpers directly:
+
+```python
+from earshot.forge import forge, palette, render_params
+```
+
+To render bank sounds directly — bypassing the CLI entirely:
+
+```python
+from earshot.forge import bank
+
+y, meta = bank.render('whoosh_fast/crisp', dur=0.8)
+y, meta = bank.render('pro_sub_drop/ref', pitch='G1')
+```
+
+The `forge()` function runs the full search loop for a recipe (write a recipe, score candidates with the critic, return the best diverse sounds). `palette()` scores an exact pre-chosen member set. `render_params()` renders specific parameter sets without searching — useful for replaying the picks from a `report.json`.
+
+## Thread Control
+
+Set `EARSHOT_THREADS` **before** importing earshot to keep the thread count consistent across the whole process. Setting it after the first model load has no effect.
+
+```python
+import os
+os.environ['EARSHOT_THREADS'] = '3'
+
+import earshot
+result = earshot.describe('whoosh.wav')
+```
+
+Alternatively, pass `--threads N` on any CLI call, or set it once at process start via the environment.
+
+<Tip>
+For batch scripts that process many files, collect all the paths first, then call the API functions in sequence. The models load once on the first call and every subsequent call in the same process is fast.
+</Tip>

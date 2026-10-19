@@ -1,0 +1,117 @@
+---
+title: "Earshot Validation Numbers and Accuracy Benchmarks"
+sidebarTitle: "Validation"
+description: "Every accuracy number Earshot publishes — description matching, moment finding, realness detection, timeline analysis, and launch scorecard — with the commands that measured them."
+---
+
+Every number on this page comes from a command in the earshot repo, run on a Ryzen 7 260 laptop CPU (bf16, 2–3 threads, other jobs running). The full tables, data descriptions, and notes on what was tuned on what data live in each area's results file under `eval/`; this page is the summary. Data sources: the Clawd film's licensed recordings (219 used + 125 rejected Freesound/Mixkit files), a finished 60-second soundtrack with every placement logged, a code-synthesized score, renders of the Cinetic synth engine, independent numpy generators, and 7 professional launch films measured locally and never committed.
+
+## 1. Description Matching and Ranking
+
+**Command**: `EARSHOT_THREADS=2 .venv/Scripts/python.exe eval/semantics/run_eval.py analyze` (tuning library) and `... heldout`
+
+Calibration on the tuning library (5 prompt templates, term-bias removal, per-sound z-scoring): pooled AUC of (recording, description) pairs **0.966** (raw cosine: 0.951). Tuning-library numbers are optimistic — 67 of the 322 vocabulary terms were added after seeing its classes.
+
+The held-out library used **125 files labelled from file names before any scoring** — nothing tuned on it:
+
+| Verdict | z threshold | True : Wrong ratio (lenient) | Precision at 3% base rate |
+|---|---|---|---|
+| strong | ≥ 3 | ~1300 : 1 | 0.98 |
+| plausible | 2.5 – 3 | 21 : 1 | 0.41 |
+| weak | 2 – 2.5 | 12 : 1 | 0.28 |
+| no match | < 2 | 0.25 : 1 | 0.008 |
+
+Half of all true matches reach "strong" (recall 0.51); 76% reach at least "weak". In a library search at a 3% base rate, a "strong" hit is the right kind of sound 98% of the time — but the exact variant only 61% (an Enter key for a spacebar counts as wrong in the strict count).
+
+<Note>
+The strong band's ratio rests on only 3 wrong pairs. With that count's 95% Poisson range (0.6–8.8 events), the true ratio lies anywhere from approximately 440:1 to 6000:1. The tuning library gave 170:1.
+</Note>
+
+**Concrete needs** (tuning library only, 24 queries from manifests such as "a deep thocky keyboard press", "a glass ting", "rain on a window"): a correct file in the top 3 for 23/24; rank 1 for 19/24. The one miss: "a cork pop" (mouth pops ranked first).
+
+## 2. Finding Moments
+
+**Command**: `EARSHOT_THREADS=2 .venv/Scripts/python.exe eval/semantics/run_eval.py heldout`
+
+<Steps>
+
+<Step title="Single key press recording (17 presses)">
+16 usable trims on 16 distinct presses. Each trim starts 5–54 ms before the attack, never after. The 17th press was a double hit the curator marked to skip. 9/10 on a 32-press keyboard board.
+</Step>
+
+<Step title="Scene with 8 placed one-shots (44 s)">
+The right event is the top-1 result for all 8. 7 are tight trims; one returns a 5-second window.
+</Step>
+
+<Step title="Long scene (300 s)">
+Every planted event found as a tight trim, including after a fix for gap-free windows and a two-stage search that resolved an early build stopping at ~95 s.
+</Step>
+
+</Steps>
+
+## 3. Realness Detection
+
+**Command**: `EARSHOT_THREADS=2 .venv/Scripts/python.exe eval/realness/run_eval.py --stage report`
+
+Evaluated on 1484 clean clips (691 real/pro, 793 synthesized), using grouped cross-validation that never tests on a trained group:
+
+| Evaluation scheme | ROC-AUC | Accuracy at 0.5 |
+|---|---|---|
+| Leave one real category / synth family out (headline) | **0.922** | 0.860 |
+| Leave one synth generator type out | 0.958 | 0.902 |
+| Retired score, never trained on (real vs retired) | **0.948** | 0.862 |
+| Retired score + the whole engine never trained on | 0.909 | 0.839 |
+| Zero-shot CLAP prompts, no training (baseline) | 0.858 | 0.749 |
+
+**Verdict bands on held-out data**: "real or pro-produced" (p\_real ≥ 0.77) and "likely code-synthesized" (p\_real ≤ 0.17) are each correct ~92% of the time on a pool that is 47% real / 53% synthesized. About 79% of clips get a firm verdict; the rest are "uncertain." Base-rate-free error rates: **6.7%** of real clips are called synthesized; **5.5%** of synthesized clips are called real.
+
+<Note>
+These verdict thresholds were chosen on the same held-out predictions, so the 92% figure is in-sample for that threshold choice. Long files use file-level thresholds (lo 0.40) on the mean of their 4-second windows, calibrated on only 23 synthesized long files — weak calibration, and the tool says so.
+</Note>
+
+## 4. Timeline and Soundtrack Analysis
+
+**Command**: `EARSHOT_THREADS=2 .venv/Scripts/python.exe eval/timeline/run_eval.py`
+
+Against the 147 placed sound effects in the Clawd film soundtrack:
+
+- **Event detection recall**: 93.2% overall — 96.4% of SFX louder than the music bed, 89.1% of those under it, 64.7% of those more than 6 dB under the music
+- **Sync accuracy**: measured offsets within 5 ms of the true placement for 84% of attack-aligned cues, within one video frame for 96%
+- **Event tags**: right about half the time for exposed events, a quarter for events buried under music — times and levels are accurate, labels are hints
+- **Processing speed**: 60-second soundtrack in 81 seconds; 93-second film in 93 seconds (2 threads, 2–4 other processes running)
+
+<Tip>
+For more than a few calls, use the MCP server or a single Python script — every CLI call is a new process that pays the ~20–40 s model load before it answers.
+</Tip>
+
+## 5. Launch Scorecard
+
+**Command**: `EARSHOT_THREADS=2 .venv/Scripts/python.exe eval/launch/run_eval.py`
+
+Leave-one-out evaluation: each of the 7 reference films critiqued against a profile of the other six. **120/140 reference-range metric checks in range (86%)**. The no-overfit baseline for min-max ranges of six films is approximately 71%.
+
+<Warning>
+This is not a blind test. Some scoring rules were changed after the first leave-one-out run (all changes are listed in the results file). `earshot critique` on any of these 7 reference films detects it and scores that film leave-one-out automatically.
+</Warning>
+
+## 6. Forge Accuracy — Blind Test (v1 Recipes)
+
+A key press, a UI click, a pop, a fast whoosh, and an impact were made from scratch in code and played blind next to real recordings of the same kind of sound.
+
+**Result**: the author picked the made sound correctly **8 out of 15 times — a coin flip**. Only the made impact was spotted (its tail dies too fast).
+
+<Warning>
+One listener and 15 trials is a small test, not a proof. The result says the made sounds are no longer easy to tell from real ones, not that they are indistinguishable. A clean blind-test kit for the v2 sounds is available at `eval/forge/blind_v2.py`; no v2 blind-test score is published yet.
+</Warning>
+
+## 7. Fit Accuracy
+
+**`earshot fit`** measured on 12 real recordings (2 each of: click, key press, pop, impact, fast whoosh, notification):
+
+- **Median CLAP cosine** between each recording and the render of its generated code: **0.945** (minimum 0.881)
+- **Same top `earshot describe` tag** in 10 of 12 recordings
+- **12-trial blind test** (recording vs render, loudness-matched, random order): the listener could not distinguish the recording from its render
+
+<Warning>
+One listener is a small test, not a proof. The renders are close but not identical: onsets, tone balance, and noise texture still differ measurably. The selection weights were set on the same 12 recordings used for evaluation. Risers, zips, and long designed sounds are untested.
+</Warning>

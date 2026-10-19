@@ -1,0 +1,185 @@
+---
+title: "Install Earshot and Set Up the Model Cache"
+sidebarTitle: "Installation"
+description: "Install Earshot on Python 3.10+, download the two open models into a local cache, and verify your setup with earshot doctor."
+---
+
+Earshot runs entirely on CPU — no GPU, no cloud calls, no API keys required for core functionality. The two open-source models it uses (CLAP and AST) are downloaded once into a local cache and loaded from disk on every subsequent run. This page walks you through cloning the repo, creating a virtual environment, installing the correct CPU-only PyTorch wheel, and verifying everything works.
+
+## Requirements
+
+Before you start, make sure you have:
+
+- **Python 3.10, 3.11, or 3.12** — earlier versions are not supported
+- **ffmpeg and ffprobe on your `PATH`** — used for audio decoding and video sync; install via your system package manager (`brew install ffmpeg`, `apt install ffmpeg`, etc.)
+- **CPU only** — earshot never uses a GPU and does not require CUDA
+
+## Step-by-Step Installation
+
+<Steps>
+  <Step title="Clone the repository">
+    Clone the earshot repo and move into it.
+
+    ```bash
+    git clone https://github.com/Leonxlnx/earshot && cd earshot
+    ```
+  </Step>
+
+  <Step title="Create a virtual environment">
+    Create an isolated Python environment inside the repo. All subsequent commands
+    use this environment.
+
+    ```bash
+    python -m venv .venv
+    ```
+  </Step>
+
+  <Step title="Install the CPU-only PyTorch wheel">
+    PyTorch must be installed from the CPU-only index before the rest of the
+    dependencies. Skipping this step and letting pip resolve PyTorch normally will
+    pull in a CUDA build that is much larger and not needed.
+
+    <CodeGroup>
+      ```bash Linux / macOS
+      .venv/bin/python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      ```
+
+      ```bash Windows
+      .venv\Scripts\python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Install Earshot">
+    Install earshot and its optional extras. `[mcp]` adds the MCP server,
+    `[llm]` adds Gemini critique support, and `[dev]` adds pytest for running
+    the test suite.
+
+    <CodeGroup>
+      ```bash Linux / macOS
+      .venv/bin/python -m pip install -e ".[mcp,llm,dev]"
+      ```
+
+      ```bash Windows
+      .venv\Scripts\python -m pip install -e ".[mcp,llm,dev]"
+      ```
+    </CodeGroup>
+
+    You can install only the extras you need:
+
+    | Extra | What it adds |
+    |---|---|
+    | `[mcp]` | MCP server (`mcp>=2`) — needed to run `earshot mcp` |
+    | `[llm]` | Gemini audio critique (`requests>=2.31`) — only with your own `GEMINI_API_KEY` |
+    | `[dev]` | pytest (`pytest>=8`) — for running `tests/` |
+  </Step>
+
+  <Step title="Verify with earshot doctor">
+    Run `doctor --load` to check the install, download the models if they are not
+    yet cached, load them, and time one embedding window. The first run takes
+    **~20–40 seconds** while the models load.
+
+    <CodeGroup>
+      ```bash Linux / macOS
+      .venv/bin/python -m earshot doctor --load
+      ```
+
+      ```bash Windows
+      .venv\Scripts\python -m earshot doctor --load
+      ```
+    </CodeGroup>
+
+    A healthy output ends with `earshot looks healthy.` If anything is wrong, the
+    summary line lists each problem with a short description and how to fix it.
+  </Step>
+</Steps>
+
+## Model Download
+
+The first time earshot needs the models it downloads them from the Hugging Face Hub into its local cache. You can trigger this download up front — before your first real command — with:
+
+```bash
+earshot doctor --fetch
+```
+
+This downloads two open models pinned to specific commits:
+
+| Model | Hub ID | Revision | Size | Licence |
+|---|---|---|---|---|
+| CLAP (text-audio embeddings) | `laion/larger_clap_general` | `16c8cc3` | ~776 MB (`model.safetensors`) | Apache-2.0 |
+| AST (AudioSet tagger) | `MIT/ast-finetuned-audioset-10-10-0.4593` | `f826b80` | ~330 MB (`model.safetensors`) | BSD-3-Clause |
+
+Both models are downloaded as safetensors weights. The combined download is approximately **1.1 GB**.
+
+After the initial download, earshot loads both models from the local cache only and never contacts the Hub again. A damaged or missing cache file is reported as an error that names the folder — earshot will never silently re-download a file.
+
+## Cache Location
+
+The model cache location depends on how earshot is installed:
+
+| Situation | Default cache location |
+|---|---|
+| Running from a source checkout (the `pyproject.toml` is writable) | `.cache/hf` inside the repo |
+| Installed as a package (e.g. via `pip install earshot`) | `~/.cache/earshot/hf` |
+
+Override the cache root at any time by setting the `EARSHOT_HOME` environment variable:
+
+```bash
+EARSHOT_HOME=/data/earshot-cache earshot doctor --fetch
+```
+
+## Offline Mode
+
+Once the models are cached, earshot works entirely offline. You can enforce offline mode with any of these environment variables — they are all equivalent to earshot:
+
+```bash
+EARSHOT_OFFLINE=1       # earshot's own flag
+HF_HUB_OFFLINE=1        # Hugging Face Hub flag
+TRANSFORMERS_OFFLINE=1  # Transformers library flag
+```
+
+When any of these is set, earshot never touches the network. A model that is missing from the cache becomes an error that explains the situation rather than a silent download attempt.
+
+<Note>
+  earshot never sets or clears any of these offline variables. If one is set in your environment from another tool, earshot will respect it.
+</Note>
+
+## Legacy Cache Note
+
+If you have a cache made before earshot version 0.2.1, it holds CLAP's earlier revision `ada0c23` whose weights are stored as a pickle file (`pytorch_model.bin`). earshot still loads that cache safely (using `torch weights_only`), and `earshot doctor` will tell you it is running on a legacy snapshot. Run `earshot doctor --fetch` to download the pinned safetensors revision (`16c8cc3`, 776 MB); earshot will use it from that point on. The tensors are identical, so any cached embeddings remain valid.
+
+## Configuration Reference
+
+All settings are controlled via environment variables. None are required for a standard install.
+
+| Variable | Default | Description |
+|---|---|---|
+| `EARSHOT_HOME` | `.cache` (source) or `~/.cache/earshot` (installed) | Cache root for models, embeddings, and decoded audio |
+| `EARSHOT_THREADS` | `min(4, cores // 2)` | PyTorch CPU thread count per process |
+| `EARSHOT_PRECISION` | `bf16` | Compute precision: `bf16` (only on CPUs with AVX512-BF16 / AMX, else falls back to fp32 automatically) or `fp32` to force float32 |
+| `EARSHOT_OFFLINE` | unset | Set to `1` to prevent all network access |
+| `EARSHOT_CLAP` | `laion/larger_clap_general` | Override the CLAP model — a Hub ID or a local folder with `config.json` and `model.safetensors` |
+| `EARSHOT_AST` | `MIT/ast-finetuned-audioset-10-10-0.4593` | Override the AST model — a Hub ID or a local folder |
+| `EARSHOT_CLAP_REVISION` | pinned `16c8cc3` | Override the CLAP Hub revision (commit SHA, branch, or tag) |
+| `EARSHOT_AST_REVISION` | pinned `f826b80` | Override the AST Hub revision |
+
+## What `earshot doctor` Checks
+
+Running `earshot doctor` (without `--load`) performs a fast install check in a few seconds without importing any heavy dependencies:
+
+<Accordion title="Checks performed by earshot doctor">
+  - **Python version** — reports the running Python version
+  - **Package versions** — checks every dependency (numpy, scipy, soundfile, soxr, librosa, pyloudnorm, scikit-learn, pillow, matplotlib, torch, transformers) and optional extras (mcp, requests)
+  - **ffmpeg / ffprobe** — checks both are on `PATH`
+  - **Model cache** — per model: the pinned revision earshot wants, what the cache holds (cached / legacy / incomplete / missing), and the folder that will be loaded
+  - **Data files** — verifies `vocab.json`, `vocab_stats.json`, `realness_model.json`, and `launch_profile.json` are present in the package
+  - **Sound bank** — reports the bank version, total sounds, and breakdown by type (forge, fit, pluck)
+  - **Offline flag** — reports which offline flag is set, if any
+  - **LLM keys** — reports whether `GEMINI_API_KEY` or `GOOGLE_API_KEY` are present (never their values)
+
+  Add `--load` to also load both models, time one embedding window, and confirm the revision, weights file, and precision that actually loaded.
+</Accordion>
+
+<Tip>
+  Run `earshot doctor` any time something behaves unexpectedly. The summary line is designed to be pasted directly into a bug report.
+</Tip>

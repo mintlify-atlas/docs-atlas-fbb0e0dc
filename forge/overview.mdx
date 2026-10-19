@@ -1,0 +1,58 @@
+---
+title: "Sound Generation Overview: forge, fit, sfx, and kit"
+sidebarTitle: "Overview"
+description: "Earshot can make sounds from code, translate recordings into code, and render from a built-in bank of 201 effects — all on CPU, no recorded audio stored in the repo."
+---
+
+Earshot's sound generation side lets an AI coding agent do something that was previously impossible without a sound library: write the code that makes a sound, listen to what was made, and improve it — then ship that sound as render code, never as a recording. Three distinct modes cover the full spectrum from creative synthesis to instant playback, and knowing which to reach for determines both the quality of the result and the time it takes.
+
+## The three generation modes
+
+<CardGroup cols={3}>
+  <Card title="earshot forge" icon="wand-magic-sparkles" href="/forge/forge">
+    **Make sounds from scratch.** Write a recipe using DSP building blocks (modal resonators, noise, sweeps, bells, reverb, saturation), run a critic-guided evolutionary search, read the critic's words, and rewrite the recipe. Best when you need a custom sound tuned to a specific description or reference set.
+  </Card>
+  <Card title="earshot fit" icon="code" href="/forge/fit">
+    **Translate a recording into code.** Analysis-by-synthesis fits a small model (ringing modes, tracked partials, time-varying noise gesture) until its render matches your recording, then writes the model as a Python recipe module. Best when you have a real recording whose structure you want to extract, vary, or morph.
+  </Card>
+  <Card title="earshot sfx / kit" icon="film" href="/forge/sfx-kit">
+    **Render from the built-in bank.** 201 sounds stored as render code, playable by id in seconds with knobs for duration, apex timing, pitch, and level. Best for film pipelines that need immediate, reproducible sound effects with no search and no models.
+  </Card>
+</CardGroup>
+
+## The key insight: no recorded audio in the repo
+
+The entire bank of 201 sounds ships without a single WAV file. Every sound is stored as render code — a recipe module plus a complete parameter set. This means:
+
+- The package is small (the forge bank JSON is 275 KB, 64 KB gzipped; the fit bank 0.5 MB).
+- Every sound re-renders deterministically from its parameters. A sound from `earshot sfx` and the same sound from `earshot forge --check` produce the same samples to within one 24-bit step.
+- You can inspect, modify, and evolve any sound by editing code, not waveforms.
+- Licence is straightforward: MIT for the code, CC0 or model-measured for the fit entries (credits in `docs/CREDITS_FIT.md`).
+
+## The forge critic loop
+
+When you run `earshot forge`, the agent does not pick one render and call it done. It runs an iterative loop:
+
+1. **Recipe** — A Python module defines the synthesis: which DSP building blocks to combine, which parameters to search, and what the sound should target.
+2. **Render candidates** — The search engine renders many parameter sets from the recipe. A model-free pre-screen ranks them by tonal balance, spectro-temporal envelope, and artifact detection — so the models only hear the best candidates of each generation.
+3. **Critic scores** — The critic measures description match (CLAP z-score against named confusions), realness (`p_real`), closeness to real reference recordings, and model-free penalties for tonal balance, envelope shape, artifacts, and polish.
+4. **Evolve** — The best candidates are kept; the search mutates them and tries again.
+5. **Agent reads** — The output folder contains `report.md` (the critic's words: "sounds like: a cork pop", "decay +2.4 outside the refs", "bumpy tail"), `compare.png` (spectrograms next to references), and `audition.wav` (made, ref, made, ref — to listen in pairs). The agent rewrites the recipe and runs again.
+
+This outer loop, where the agent reads the critic's words and edits the recipe itself, is what separates `earshot forge` from a parameter sweeper.
+
+## The bank: 201 sounds
+
+| File | Version | Count | What |
+|---|---|---|---|
+| `forge_v2.json` | `forge_v2r6` | 183 | Every forge v2 final — 34 motion-design categories, 4–6 named characters each |
+| `fit.json` | `fit1` | 15 | Recipes fitted from CC0 recordings: clicks, a tick, pops, touches, keys, a snap, a bell, a whoosh |
+| `pluck.json` | `pluck1` | 3 | Three tuned kalimba voices (`pluck/kalimba`, `pluck/kalimba_soft`, `pluck/kalimba_ring`) |
+
+The 34 forge v2 categories span the full motion-design vocabulary: whoosh_fast, whoosh_big, swish, swipe, riser, downlifter, pro_zip, impact, sub_drop, pro_sub_drop, logo_sting, pro_logo_sting, click, pro_click, hover_tick, pro_hover_tick, tap, pro_tap, toggle, pop, pro_pop, pro_pop_in, notify, pro_notify, shimmer, pro_shimmer, glitch, pro_glitch, typing_key, pro_typing_key, pro_typing_run, pluck, and the 15 fitted sounds under `fit/`.
+
+## Which commands load models
+
+<Note>
+`earshot sfx` and `earshot kit` load **no models** and run in seconds — ideal for film pipelines that render from the bank repeatedly. `earshot forge` and `earshot fit` load CLAP and the AudioSet tagger (~1.1 GB total, ~20–40 s on first call per process). For repeated `forge` or `fit` calls, use the MCP server (`earshot mcp`) so the models stay loaded between calls.
+</Note>

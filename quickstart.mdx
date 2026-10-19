@@ -1,47 +1,225 @@
 ---
-title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+title: "Get Started with Earshot in 5 Minutes"
+sidebarTitle: "Quickstart"
+description: "Run your first earshot describe, match a sound against a query, find a moment in a recording, and connect Earshot as an MCP server for Claude Code."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
-
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
-
-## Prerequisites
-
-Before you begin, you must have:
-
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
-
-## Get started
+This guide takes you from a fresh install to running your first four earshot commands. You will describe a sound file in plain English, match it against a text description to get a calibrated verdict, find the best moments of a specific sound inside a longer recording, and optionally hook earshot up as an MCP server so an AI agent can call it directly. All of this runs on CPU — no GPU, no cloud calls.
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
+  <Step title="Install Earshot">
+    If you have not installed earshot yet, follow the [Installation guide](/installation) first. The short version:
 
     ```bash
-    npm install your-package
+    git clone https://github.com/Leonxlnx/earshot && cd earshot
+    python -m venv .venv
+    .venv/bin/python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+    .venv/bin/python -m pip install -e ".[mcp,llm,dev]"
+    .venv/bin/python -m earshot doctor --load
     ```
+
+    The `doctor --load` step downloads the two open models (~1.1 GB) on first run and verifies everything is working.
   </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
+
+  <Step title="Describe your first file">
+    `earshot describe` turns any audio file into a plain-language description with calibrated tags, AudioSet labels, and acoustic measurements. Point it at any `.wav`, `.ogg`, `.mp3`, or `.mp4` file.
 
     ```bash
-    your-cli init
+    earshot describe enter.ogg
     ```
+
+    Example output:
+
+    ```
+    0.56 s short transient (attack 3 ms, decays in 190 ms). Sounds most like: a single mechanical
+    keyboard key press (z +5.4), a soft key release click (z +3.6) ... [clear reading].
+    peak -0.1 dBFS, brightness 1.5 kHz ...
+    ```
+
+    The `z` scores tell you how far above the vocabulary mean each tag ranks — `z +5.4` is an unusually strong match. `[clear reading]` means the top tag is well separated from its nearest alternative.
+
+    <CodeGroup>
+      ```bash CLI
+      earshot describe enter.ogg
+      ```
+
+      ```python Python API
+      import earshot
+      result = earshot.describe('enter.ogg')
+      print(result)
+      ```
+    </CodeGroup>
   </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
+
+  <Step title="Match a sound against a description">
+    `earshot match` scores how well a text description fits a specific file and returns a verdict: `strong`, `plausible`, `weak`, or `no match`. Pass `--alts` to include competing descriptions as held-out evidence.
 
     ```bash
-    your-cli start
+    earshot match key.ogg "a deep thocky mechanical keyboard press" \
+      --alts "a clicky blue switch keyboard" "a mouse click"
     ```
+
+    Example output:
+
+    ```
+    -> strong (z +3.7; would rank #2 among 322 vocabulary descriptions) ...
+    ```
+
+    The z-score tells you where your query ranks among all 322 vocabulary descriptions for this file. `strong` means it is the right kind of sound and the exact variant is a close match.
+
+    <CodeGroup>
+      ```bash CLI
+      earshot match key.ogg "a deep thocky mechanical keyboard press" \
+        --alts "a clicky blue switch keyboard" "a mouse click"
+      ```
+
+      ```python Python API
+      from earshot import api
+      result = api.match(
+          'key.ogg',
+          'a deep thocky mechanical keyboard press',
+          alts=['a clicky blue switch keyboard', 'a mouse click'],
+      )
+      print(result)
+      ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Find moments inside a recording">
+    `earshot find` locates the best occurrences of a sound within a longer recording and returns them as start/end timestamps. Use `--top N` to get more than one result.
+
+    ```bash
+    earshot find keys.ogg "a single mechanical key press" --top 4
+    ```
+
+    Example output:
+
+    ```
+    0:03.94-0:04.19 (0.24 s stroke, z +4.1 strong); 0:10.60-0:10.86 ...
+    ```
+
+    Each result is a tight trim you can pass back to `earshot describe` or use directly as an audio cue. The trims are returned in descending order of confidence.
+
+    <CodeGroup>
+      ```bash CLI
+      earshot find keys.ogg "a single mechanical key press" --top 4
+      ```
+
+      ```python Python API
+      from earshot import api
+      result = api.find('keys.ogg', 'a single mechanical key press', top=4)
+      print(result)
+      ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Connect as an MCP server (optional)">
+    For AI agents that need to call earshot repeatedly in a session, running it as an MCP server keeps both models warm and eliminates the ~20–40 s per-call startup overhead.
+
+    **Claude Code** — add earshot as a user-scoped MCP server:
+
+    ```bash
+    claude mcp add earshot --scope user -e EARSHOT_THREADS=3 \
+      -- /path/to/earshot/.venv/bin/python -m earshot mcp
+    ```
+
+    **Any MCP client** — add this to your `.mcp.json`:
+
+    ```json
+    {
+      "mcpServers": {
+        "earshot": {
+          "command": "/path/to/earshot/.venv/bin/python",
+          "args": ["-m", "earshot", "mcp"],
+          "env": { "EARSHOT_THREADS": "3" }
+        }
+      }
+    }
+    ```
+
+    Models load on the first tool call and stay resident. On a slow machine, start Claude Code with `MCP_TIMEOUT=60000` to give the first load enough time.
   </Step>
 </Steps>
 
-<Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
+## CLI vs Python API: Side-by-Side
 
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
+The same three operations — describe, match, find — expressed as both a CLI pipeline and a Python script.
+
+<CodeGroup>
+  ```bash CLI
+  # Describe a file
+  earshot describe enter.ogg
+
+  # Match against a description with alternatives
+  earshot match key.ogg "a deep thocky mechanical keyboard press" \
+    --alts "a clicky blue switch keyboard" "a mouse click"
+
+  # Find the top 4 moments matching a query
+  earshot find keys.ogg "a single mechanical key press" --top 4
+
+  # Save any result to JSON
+  earshot describe enter.ogg --out result.json
+  earshot match key.ogg "a deep thocky press" --json
+  ```
+
+  ```python Python API
+  from earshot import api
+
+  # Describe a file
+  result = api.describe('enter.ogg')
+
+  # Match against a description with alternatives
+  result = api.match(
+      'key.ogg',
+      'a deep thocky mechanical keyboard press',
+      alts=['a clicky blue switch keyboard', 'a mouse click'],
+  )
+
+  # Find the top 4 moments matching a query
+  result = api.find('keys.ogg', 'a single mechanical key press', top=4)
+
+  # Access structured data directly
+  print(result)
+  ```
+</CodeGroup>
+
+## Structured Output
+
+Every earshot command prints a plain-language summary by default. Two flags give you the full structured result:
+
+- `--json` — print the complete JSON result to stdout (in addition to the summary)
+- `--out result.json` — write the JSON result to a file (summary still goes to stdout)
+
+```bash
+earshot describe enter.ogg --json
+earshot match key.ogg "a thocky key press" --out match_result.json
+earshot find keys.ogg "a key press" --top 4 --out finds.json
+```
+
+<Note>
+  Errors always go to stderr as a single line: `earshot <command>: error: <message>`, with exit code 1. With `--json`, describe / match / rank / find / compare / ab also print the error as JSON on stdout so downstream parsers do not need to handle both streams differently.
+</Note>
+
+<Tip>
+  **Model loading takes ~20–40 seconds per CLI call.** The commands `measure`, `sfx`, and `kit` load no models and return immediately. For anything beyond a few calls — especially in an agent session — run `earshot mcp` so both models stay loaded between calls. Alternatively, batch everything into a single Python script using `from earshot import api`.
 </Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="describe" icon="microphone" href="/commands/describe">
+    Full reference for tags, z-scores, AudioSet labels, and acoustic
+    measurements.
+  </Card>
+  <Card title="match & rank" icon="magnifying-glass" href="/commands/match-rank-find">
+    Verdict levels explained, how to use `--alts`, and how to rank many files
+    against one query.
+  </Card>
+  <Card title="find & timeline" icon="clock" href="/commands/match-rank-find">
+    Finding moments in long recordings and generating full listening transcripts
+    of soundtracks and films.
+  </Card>
+  <Card title="MCP Server" icon="server" href="/integrations/mcp-server">
+    Complete setup guide for Claude Code and other MCP-compatible agents.
+  </Card>
+</CardGroup>

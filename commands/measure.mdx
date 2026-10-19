@@ -1,0 +1,158 @@
+---
+title: "Objective Audio Measurements Without AI Models"
+sidebarTitle: "measure"
+description: "Run earshot measure for LUFS, true peak, LRA, envelope, spectrum, tempo, and key — no models loaded, no network, fast."
+---
+
+`earshot measure` is earshot's purely objective measurement layer: no CLAP, no AudioSet, no model loading, no network. It is implemented entirely in numpy and scipy and runs in a fraction of a second once the file is decoded. Every number it returns — loudness, true peak, loudness range, envelope timing, spectral balance, tempo — is what a meter or analyser would report, not an opinion about what the sound sounds like. Use it whenever you need fast, scriptable, model-free acoustic facts.
+
+## Usage
+
+```bash
+earshot measure FILE [OPTIONS]
+```
+
+<ParamField path="FILE" type="string[]" required>
+  One or more audio files, video files, or folders. One measurement record per file.
+</ParamField>
+
+<ParamField path="--music" type="boolean">
+  Also compute tempo (BPM), beat grid, and key estimate. Requires librosa; adds a few seconds.
+</ParamField>
+
+<ParamField path="--light" type="boolean">
+  Skip the slow parts: onset detection, HPSS harmonic ratio, and pitch. Returns measurements instantly for very long files.
+</ParamField>
+
+<ParamField path="--start SECONDS" type="float">
+  Measure only from this offset.
+</ParamField>
+
+<ParamField path="--end SECONDS" type="float">
+  Measure only up to this offset.
+</ParamField>
+
+<ParamField path="--json" type="boolean">
+  Print the full result as JSON.
+</ParamField>
+
+<ParamField path="--out FILE" type="string">
+  Also write the JSON result to this file.
+</ParamField>
+
+## What it returns
+
+<Accordion title="Loudness and levels">
+  | Field | Description |
+  |---|---|
+  | `peak_dbfs` | Sample peak in dBFS |
+  | `true_peak_dbtp` | 4× oversampled true peak in dBTP (inter-sample peak) |
+  | `rms_dbfs` | RMS level in dBFS |
+  | `lufs` | BS.1770 integrated loudness (requires ≥ 0.4 s) |
+  | `short_term_max_lufs` | Maximum 3-second short-term loudness (requires ≥ 3 s) |
+  | `lra_lu` | Loudness range in LU (requires ≥ 6 s) |
+  | `clipped_samples` | Number of samples at or above 0.999 FS |
+  | `dc` | DC offset (mean sample value) |
+  | `noise_floor_dbfs` | 10th-percentile 20 ms RMS — the quieter regions |
+  | `dynamic_range_db` | Peak RMS minus noise floor |
+</Accordion>
+
+<Accordion title="Envelope">
+  | Field | Description |
+  |---|---|
+  | `attack_ms` | 10%–90% rise of the first event on a 5 ms RMS envelope (~4 ms floor for an instant onset) |
+  | `decay_ms` | Overall peak → 30 dB down on a 10 ms envelope, staying down for 20 ms. `None` for sustained sounds |
+  | `attack_at` | Time of the first event in seconds |
+  | `peak_at` | Time of the loudest point in seconds |
+  | `onsets` | List of detected onset times (up to 200) |
+  | `onset_count` | Total onset count |
+  | `onsets_per_s` | Onset rate |
+</Accordion>
+
+<Accordion title="Spectrum">
+  | Field | Description |
+  |---|---|
+  | `brightness_hz` | Median magnitude-weighted spectral centroid over active frames — perceived brightness |
+  | `centroid_hz` | Power-weighted centroid over the whole spectrum (dominated by the low end) |
+  | `rolloff95_hz` | Frequency below which 95% of spectral power lies |
+  | `bandwidth_hz` | Highest 1/3-octave band within 60 dB of the loudest band |
+  | `bands_db` | Energy share per band: `sub` (20-60 Hz), `low` (60-250 Hz), `lowmid` (250-1 kHz), `mid` (1-4 kHz), `presence` (4-8 kHz), `air` (8-16 kHz), `top` (16 kHz+) |
+  | `flatness` | 0 = pure tone … 1 = white noise |
+  | `tonal_peak_ratio_db` | Strongest spectral peak vs median — very high when sine-like |
+  | `harmonic_ratio` | HPSS harmonic energy share (first 30 s) |
+  | `f0_hz` | Median pitch, only when `harmonic_ratio ≥ 0.8` |
+</Accordion>
+
+<Accordion title="Stereo">
+  | Field | Description |
+  |---|---|
+  | `side_to_mid_db` | Stereo width: energy ratio of the side channel to the mid channel |
+  | `correlation` | L/R channel correlation (1.0 = mono) |
+  | `digital_silence_frac` | Fraction of samples at exactly zero (weak evidence of synthesis on its own; edited real recordings also have it) |
+</Accordion>
+
+<Accordion title="Music (with --music)">
+  | Field | Description |
+  |---|---|
+  | `tempo` | Estimated BPM |
+  | `beats` | List of beat times in seconds |
+  | `beat_ibi_std_ms` | Standard deviation of inter-beat intervals in ms |
+  | `key` | Top-3 key estimates: `[{key: 'C major', r: 0.87}, ...]` |
+</Accordion>
+
+## Example output
+
+```bash
+earshot measure hit.wav
+```
+
+```text
+hit.wav: 0.312 s, peak -0.2 dBFS (true peak -0.1 dBTP), -12.3 LUFS; noise floor -62 dBFS,
+attack 3 ms, decay 180 ms, brightness 2.1 kHz, bandwidth 16.0 kHz;
+bands sub -28.1 low -18.4 lowmid -14.2 mid -12.9 presence -16.1 air -22.0 top -38.5 dB.
+```
+
+## Python API
+
+```python
+from earshot import api
+
+m = api.measure('sound.wav')
+# m['lufs'], m['attack_ms'], m['centroid_hz']
+# m['noise_floor_dbfs'], m['digital_silence_frac']
+# m['bands_db'], m['brightness_hz'], m['bandwidth_hz']
+```
+
+You can also call `measure` directly from `earshot.features`:
+
+```python
+from earshot.features import measure
+
+m = measure('hit.wav')                  # full measurements
+m = measure('hit.wav', light=True)      # skip onsets, HPSS, pitch
+m = measure('hit.wav', music=True)      # add tempo, beats, key
+m = measure('hit.wav', start=1.2, end=1.6)  # trim a region
+```
+
+`measure` also accepts a NumPy array `(n,)` or `(n, 2)` at 48 kHz in place of a file path.
+
+## Why use `measure` instead of `describe` or `match`
+
+<CardGroup cols={2}>
+  <Card title="Instant — no model load" icon="bolt">
+    `measure`, `earshot sfx`, and `earshot kit` are the only earshot commands that load no ML models. Results arrive in milliseconds after file decode, making `measure` suitable for QA pipelines that process hundreds of files.
+  </Card>
+  <Card title="Model-free QA pipelines" icon="check">
+    Pipe `measure` output into scripts that gate on loudness, true peak, attack time, or spectral balance without waiting for the ~20-40 s CLAP/AudioSet model load.
+  </Card>
+  <Card title="Above 14 kHz" icon="wave-square">
+    CLAP's front end stops at 14 kHz and the AudioSet tagger at 8 kHz. `measure`'s `bandwidth_hz`, `bands_db.air`, and `bands_db.top` are the only earshot numbers that cover the full spectrum up to 24 kHz.
+  </Card>
+  <Card title="Scripting and auditioning" icon="terminal">
+    Combine with `earshot sfx check` for model-free SFX auditing: clicks, cut tails, clipping, DC, comb ring — all measurement-only, no GPU, no network.
+  </Card>
+</CardGroup>
+
+<Note>
+  `earshot sfx check` (the SFX bank audit) and `earshot kit check` also load no models and run entirely on measurements. Use `earshot measure` for general-purpose acoustic QA and `earshot sfx check` when auditing rendered bank sounds for artifacts.
+</Note>

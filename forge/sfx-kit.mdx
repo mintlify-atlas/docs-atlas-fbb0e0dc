@@ -1,0 +1,255 @@
+---
+title: "Render Built-in Sound Effects with earshot sfx and kit"
+sidebarTitle: "sfx / kit"
+description: "earshot sfx renders one of 201 built-in sounds by id with knob control. earshot kit renders a whole film's effects kit with measured sync points — no models, no network."
+---
+
+`earshot sfx` and `earshot kit` are the delivery layer: a bank of 201 sounds stored as render code, playable by id in seconds, with knobs that edit recipe parameters directly rather than resampling audio. `sfx` renders a single sound aimed at a moment in the picture; `kit` renders a whole film's effects kit into cached takes with measured sync points. Neither command loads a model or makes a network request — a film pipeline can render all its sounds in one process in under a minute, and re-render only what changed.
+
+## The bank
+
+201 sounds, no audio stored anywhere:
+
+| File | Version | Count | What |
+|---|---|---|---|
+| `forge_v2.json` | `forge_v2r6` | 183 | Every forge v2 final — 34 motion-design categories, 4–6 named characters each |
+| `fit.json` | `fit1` | 15 | Fitted from CC0 recordings: clicks, a tick, pops, light touches, keys, a snap, a bell, a short whoosh |
+| `pluck.json` | `pluck1` | 3 | Three tuned kalimba voices (`pluck/kalimba`, `pluck/kalimba_soft`, `pluck/kalimba_ring`) |
+
+Every entry is a schema-2 render block: recipe module, render function, member name, complete parameters at full precision, seed, and palette gain. The build re-renders every entry and compares it to a fingerprint; one entry off by more than one 24-bit step (1×10⁻⁶) and nothing is written. On the build machine, all 183 forge entries re-render to within 1.19×10⁻⁷.
+
+Bank IDs take the form `<category>/<member>`. Use `earshot sfx list` to see every id, length, peak time, cue kind, and knob availability.
+
+## earshot sfx commands
+
+```bash
+# List bank sounds, optionally filtered by kind
+earshot sfx list --kind whoosh
+
+# Render one sound to a file, aimed at a specific moment
+earshot sfx render whoosh_fast/crisp -o w.wav --dur 0.8 --apex 0.32
+
+# Render a tuned note from the kalimba
+earshot sfx render pluck/kalimba -o e5.wav --pitch E5
+
+# Audit any sound-effect file for common problems
+earshot sfx check w.wav
+```
+
+## Knobs: editing parameters, never resampling
+
+Knobs edit the recipe's own parameters directly. The audio is rendered at the target specification — it is never time-stretched or resampled. `meta['edits']` in the Python return value reports what each knob did and how close it landed.
+
+<ParamField path="--dur" type="float">
+  **Duration in seconds.** For the whoosh family (whoosh_fast, whoosh_big, pro_whoosh_big, swish, swipe), scales rise, hold, and fall together so the pass keeps its shape. For recipes with a length key (risers, downlifters, sub drops, shimmers, zips, UI sounds), adjusts that key iteratively and corrects with up to two render-and-measure cycles. Files longer than the target are faded out with a raised-cosine taper; shorter ones are padded with silence. A riser's length is exact by construction.
+</ParamField>
+
+<ParamField path="--apex" type="float">
+  **Whoosh apex in seconds** (whoosh family only): places the loudest 5 ms moment within 5 ms of the target. The closed-form engine hits within ~12 ms on the fast family; the apex-placement step (trimming or padding the quiet approach in 1 ms steps) brings every tested target within 2.5 ms, including broad fluttering passes. Measured across 59 whoosh-family targets, tails 0.1–0.12 s. Combine with `--dur` for a complete move: `--dur 0.8 --apex 0.32` = a 0.8 s file whose loudest moment falls at 0.32 s.
+</ParamField>
+
+<ParamField path="--pitch" type="string">
+  **Note name or Hz** — for example `E5`, `Eb6`, `F#4`, `440`, `440hz`. Edits the recipe's pitch parameter and co-scales related parameters (body frequency, partial spacing) so the whole sound transposes. Tonal categories and their ranges:
+
+  | Category | Parameter scaled | Range |
+  |---|---|---|
+  | pluck | f0 | 130–2100 Hz |
+  | notify / pro_notify | f0 (head fundamental) | 220–3200 / 600–3200 Hz |
+  | click, pro_click, toggle | pitch (tink centre), landed on the heard partial | 1.2–9.5 kHz / 1.6–8 kHz |
+  | sub_drop, pro_sub_drop | f1 (landing pitch; f0 keeps the glide ratio) | 28–62 Hz |
+  | pro_zip | f1 (f0, fpk) | 80 Hz–12 kHz |
+  | logo_sting / pro_logo_sting | root / g_root | 300–2200 / 50–1800 Hz |
+  | impact, pro_impact | body_f1 (body_f0, sub_f) | 34–75 Hz |
+  | pluck, bell | f0 | per-recipe range |
+
+  Noise sounds (whoosh_fast, whoosh_big, swish, swipe, glitch, pro_glitch, typing families) refuse a pitch and explain why. Targets outside the parameter range and members whose tonal layer is off are also refused with a reason. The render is measured: `edits['pitch']['measured_hz']`, `cents_off`, and `ok` (within 50 cents; pluck E5, notify G5, pro_sub_drop G1 each land at 0 cents).
+</ParamField>
+
+<ParamField path="--seed" type="integer">
+  **Take seed.** `None` (omitted) renders the delivered final at its own seed. Any other integer is a new take of the same member: noise, jitter, and micro-timing change; the character stays. Finals were picked on robust re-renders, so any seed gives a usable result.
+</ParamField>
+
+<ParamField path="--level" type="float">
+  **Peak level in dBFS** (default −1). Values above 0 dBFS are refused to prevent clipping. Use `--weight` (passed through the Python API) to scale by relative loudness: 0.5 = 6 dB down.
+</ParamField>
+
+## The audit: earshot sfx check
+
+The audit runs automatically on every bank render and on any WAV you pass to `earshot sfx check`. It is measurement-only — no models — and fast enough to run on every take in a film pipeline.
+
+| Code | What it detects |
+|---|---|
+| `clicks`, `edge` | Isolated discontinuities inside the sound; first or last sample off zero |
+| `clipping` | Flat tops at the peak; samples over full scale |
+| `dc` | An offset above −40 dB re peak |
+| `ring` | A metallic comb ring in the tail (z > 15) |
+| `truncated` | A tail cut while still decaying above −45 dB |
+| `silent` | Peak under −60 dBFS, or less than 5 ms within 40 dB of the peak |
+| `silence` | Digital silence inside the sound |
+| `tail` | The tail rises again by more than 6 dB |
+| `rising_glide` | A tonal pitch that climbs more than 4 semitones over at least 50 ms (the rising "synth whip") |
+| `stacked`, `pre_swell` | For a hit: two separate attacks, or more than 100 ms of build before the hit |
+| `pitch_off` | A render with a pitch knob whose measured note is more than 50 cents off |
+
+**Bank audit result:** 185 of 201 sounds are clean. Flagged: the three rising zips, two logo-sting leads, two rising bubble pops, two ringing keys, two clicking hover ticks, two truncated sounds, and a few glitch/shimmer/logo artefacts. The three presets use none of the flagged sounds.
+
+## earshot kit commands
+
+```bash
+# Create a kit JSON from a preset
+earshot kit init --preset calm -o audio/kit.json
+
+# Render all takes and write kit.lock.json with measured sync points
+earshot kit render audio/kit.json --out audio/kit
+
+# Validate the kit file and audit every take
+earshot kit check audio/kit.json --out audio/kit
+
+# Write every take role by role at its mix level, with a cue list
+earshot kit audition audio/kit.json -o audition.wav
+```
+
+## Kit roles
+
+A kit assigns one sound to each film role. Roles are the shared vocabulary of a film's cue kinds:
+
+| Role | Typical use |
+|---|---|
+| `tick`, `tick.crisp` | Hover, rows passing, cursor blink, counter increment |
+| `tock` | Soft surface taps, footsteps, light impacts |
+| `hit` | The lockup hit — one sound, one attack |
+| `land`, `land.light` | Elements landing on screen; light finger taps |
+| `pop` | Bubble pops, element arrivals |
+| `whoosh.short`, `whoosh.long` | Short passes; big air transitions |
+| `suck` | A reverse pass (element leaving) |
+| `riser` | Energy building before a cut |
+| `swell` | A longer, broader energy swell |
+| `drop` | Sub weight landing under a hit |
+| `key`, `key.space`, `key.return` | Individual key presses |
+| `click`, `click.confirm` | UI button clicks; confirmation actions |
+| `snap` | Toggle switch, lock-in |
+| `bell` | Tuned notes for progress, notification, or melody |
+| `text` | A soft sound for a text fragment resolving |
+
+## Kit presets
+
+<Tabs>
+  <Tab title="calm">
+    Text-led films and the default starting point. Uses fitted CC0 recordings where they measure closer to the role than the forge member. Notable choices: `fit/tick/domino` for tick, `fit/click/floss_lid` for click, `fit/pop/mouth_plop` for pop, `fit/whoosh.short/bamboo_swish` for whoosh.short. The hit is one struck C5 bell (`notify/m0`), no build, no sub. Bell uses `pluck/kalimba` across a C pentatonic from G4 to E6.
+  </Tab>
+  <Tab title="crisp">
+    Energetic product films. Gated sub impact for the hit (`pro_impact/short`), tink UI ticks (`pro_click/tink`), fitted mechanical keys and spacebar. Bell uses `pluck/kalimba`, same pentatonic as calm.
+  </Tab>
+  <Tab title="minimal">
+    Designed effects, no naturalism. Sub-led hit (`pro_impact/air`), designed key ticks (`pro_typing_key` glass/tick/double), sub drop for weight (`pro_sub_drop/ref`). Bell uses `pro_notify/ding_1822` across an F pentatonic from A5 to G7. Text resolves on an untuned soft tap — never clashes with a note.
+  </Tab>
+</Tabs>
+
+All three presets silence `riser`, `swell`, and `suck` (calm also silences `drop`): a reveal resolves on one element, and one clean hit carries the lockup with nothing layered on it.
+
+## The lock file
+
+`earshot kit render` writes `kit.lock.json` alongside the take WAVs. The lock records the measured sync points of every take:
+
+```json
+{
+  "kit": 1, "earshot": "0.3.0", "bank": "forge_v2r6+fit1+pluck1", "sr": 48000, "name": "calm",
+  "roles": {
+    "hit": {
+      "sound": "notify/m0", "align": "onset", "level_db": -3.0,
+      "takes": [{
+        "file": "hit_1.wav", "seed": 1826701615, "pitch": null,
+        "onset_s": 0.0, "peak_s": 0.0045, "end_s": 2.157, "dur_s": 2.3,
+        "peak_db": -1.0, "lufs_m_max": -11.06, "sha1": "...", "key": "...",
+        "checks": []
+      }]
+    },
+    "riser": null
+  }
+}
+```
+
+A mixer reads `onset_s`, `peak_s`, and `end_s` to place the take precisely on the cut. The `align` key tells the mixer which sync point to use (`onset`, `peak`, or `end`). A `null` role is not sounded — the renderer skips its cues.
+
+The lock is **deterministic and cached**: the same kit JSON re-renders nothing if the lock already matches. A take that fails the audit is re-rolled on `seed + 1000j` (up to 3 attempts); the lock records both `seed` and `planned_seed`. On the three presets, 4 of 191 takes needed a re-roll; every preset take is clean.
+
+## Python and MCP
+
+```python
+from earshot.forge import bank
+
+# Render directly from the bank
+y, meta = bank.render('pro_sub_drop/ref', pitch='G1')
+y, meta = bank.render('whoosh_fast/crisp', seed=3, dur=0.8, apex=0.32)
+
+# sfx and kit through the unified API
+from earshot import api
+
+api.sfx_render('whoosh_fast/crisp', 'w.wav', dur=0.8, apex=0.32)
+api.kit_render('audio/kit.json', 'audio/kit')
+
+# Lower-level access
+from earshot.forge import sfx, kit
+
+sfx.check(y, role='hit')
+kit.init('calm', 'audio/kit.json')
+lock = kit.render('audio/kit.json', 'audio/kit')
+kit.audition('audio/kit.json', 'audition.wav')
+```
+
+MCP tools (available via `earshot mcp`): `sfx_list`, `sfx_render` (writes a WAV, returns onset/peak/end and the audit), and `kit_render` (kit.json into takes + lock). None of them load models.
+
+## Bank ID overview
+
+```
+# Whooshes and sweeps
+whoosh_fast/crisp      whoosh_fast/heavy     whoosh_fast/tight     whoosh_fast/sleeve    whoosh_fast/wide
+whoosh_big/swell       whoosh_big/deep       whoosh_big/full       whoosh_big/pad
+swish/velvet           swish/thin            swipe/cloth           swipe/paper
+
+# Risers and drops
+riser/build            riser/noise           riser/chord           riser/reverse
+downlifter/fall        downlifter/tail
+sub_drop/thud          sub_drop/deep         pro_sub_drop/ref      pro_sub_drop/quick
+
+# Impacts
+impact/swell           impact/crack          impact/sub
+pro_impact/short       pro_impact/air        pro_impact/deep
+
+# UI sounds
+click/soft             click/thock           pro_click/tink        pro_click/soft
+hover_tick/detent      pro_hover_tick/ping   pro_hover_tick/soft
+tap/knuckle            tap/finger            tap/glass             pro_tap/soft
+toggle/latch           toggle/micro
+pop/1                  pop/2                 pro_pop/bloop         pro_pop_in/deep       pro_pop_in/round
+
+# Notifications
+notify/m0              notify/m3             pro_notify/ding_1822  pro_notify/ding_2045
+shimmer/chord          pro_shimmer/m3
+
+# Keys
+typing_key/thock       typing_key/crisp      typing_key/deep       typing_key/light
+pro_typing_key/glass   pro_typing_key/tick   pro_typing_key/double
+pro_typing_run/short   pro_typing_run/long
+
+# Tonal and glitch
+logo_sting/zip_ping    logo_sting/reverse_bloom   pro_logo_sting/sweep_hit
+pro_zip/up             pro_zip/up_hi         pro_zip/arc
+glitch/dropout         pro_glitch/stutter
+
+# Pluck
+pluck/kalimba          pluck/kalimba_soft    pluck/kalimba_ring
+
+# Fitted CC0 recordings
+fit/click/floss_lid         fit/tick/domino          fit/pop/mouth_plop
+fit/pop/lip_pop             fit/land.light/fingertip_book  fit/land.light/finger_wood
+fit/land.light/finger_phone fit/whoosh.short/bamboo_swish  fit/key/medium
+fit/key/thock               fit/key/lubed            fit/key.space/thock_space
+fit/snap/switch_flip        fit/bell/small_bell      fit/hit/bamboo_tok
+```
+
+Use `earshot sfx list` to see all ids, lengths, peak times, cue kinds, and knob availability at once.
+
+<Note>
+The bank contains effects and tuned notes — no music, no ambience. For film music and ambient beds, the `skills/real-sound` agent skill describes a full process using real licensed recordings.
+</Note>
